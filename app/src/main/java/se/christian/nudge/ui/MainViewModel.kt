@@ -3,16 +3,19 @@ package se.christian.nudge.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import se.christian.nudge.NudgeApp
 import se.christian.nudge.PermissionState
 import se.christian.nudge.Permissions
 import se.christian.nudge.apps.AppInfo
+import se.christian.nudge.service.DailyUsageReader
 import se.christian.nudge.settings.Settings
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -31,6 +34,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _permissions = MutableStateFlow(Permissions.state(application))
     val permissions: StateFlow<PermissionState> = _permissions.asStateFlow()
 
+    private val _todayUsage = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** Foreground ms today per package, from the system's usage data. */
+    val todayUsage: StateFlow<Map<String, Long>> = _todayUsage.asStateFlow()
+
     /** Package whose settings sheet is open. */
     private val _sheetPackage = MutableStateFlow<String?>(null)
     val sheetPackage: StateFlow<String?> = _sheetPackage.asStateFlow()
@@ -48,6 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openAppSheet(packageName: String?) {
         _sheetPackage.value = packageName
+        if (packageName != null) refreshTodayUsage()
     }
 
     fun completeOnboarding() = launch { repository.setOnboardingCompleted() }
@@ -59,6 +68,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAppEnabled(packageName: String, enabled: Boolean) = launch { repository.setAppEnabled(packageName, enabled) }
     fun setThresholdOverride(packageName: String, minutes: Int?) =
         launch { repository.setThresholdOverride(packageName, minutes) }
+    fun setContinuousEnabled(enabled: Boolean) = launch { repository.setContinuousRemindersEnabled(enabled) }
+    fun setDailyEnabled(enabled: Boolean) = launch { repository.setDailyRemindersEnabled(enabled) }
+    fun setDefaultDailyLimit(minutes: Int) = launch { repository.setDefaultDailyLimitMinutes(minutes) }
+    fun setDailyRepeatInterval(minutes: Int?) = launch { repository.setDailyRepeatIntervalMinutes(minutes) }
+    fun setDailyLimitOverride(packageName: String, minutes: Int?) =
+        launch { repository.setDailyLimitOverride(packageName, minutes) }
+
+    /** Re-reads today's foreground time per package (shown in the app sheet). */
+    fun refreshTodayUsage() {
+        viewModelScope.launch {
+            _todayUsage.value = withContext(Dispatchers.IO) { DailyUsageReader(app).todayTotals() }
+        }
+    }
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }

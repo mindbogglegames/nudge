@@ -19,6 +19,7 @@ import se.christian.nudge.reminder.OverlayLifecycleOwner
 import se.christian.nudge.reminder.PillContent
 import se.christian.nudge.reminder.ReminderOverlay
 import se.christian.nudge.service.UsageMonitorService
+import se.christian.nudge.session.ReminderKind
 import se.christian.nudge.session.reminderText
 import se.christian.nudge.ui.theme.NudgeTheme
 
@@ -102,7 +103,11 @@ class MainActivity : ComponentActivity() {
             packageName = sample?.packageName ?: packageName,
             appLabel = label,
             icon = sample?.icon,
-            text = reminderText(settings.defaultThresholdMinutes.toLong(), label),
+            text = if (settings.dailyRemindersEnabled && !settings.continuousRemindersEnabled) {
+                reminderText(settings.defaultDailyLimitMinutes.toLong(), label, ReminderKind.Daily)
+            } else {
+                reminderText(settings.defaultThresholdMinutes.toLong(), label)
+            },
             snoozeMinutes = settings.snoozeMinutes,
         )
         val overlay = testOverlay ?: ReminderOverlay(this, overlayOwner, app.reminderActions).also { testOverlay = it }

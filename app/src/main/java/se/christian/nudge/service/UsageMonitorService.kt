@@ -16,10 +16,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import se.christian.nudge.NudgeApp
 import se.christian.nudge.Permissions
 import se.christian.nudge.reminder.PillContent
@@ -67,6 +69,11 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
         detector = ForegroundAppDetector(this)
         overlay = ReminderOverlay(this, this, app.reminderActions)
         tracker.ignoredPackages = app.appInfo.ignoredPackages()
+        lifecycleScope.launch {
+            // Count time spent in apps today before the service started.
+            val totals = withContext(Dispatchers.IO) { DailyUsageReader(this@UsageMonitorService).todayTotals() }
+            tracker.seedDailyTotals(totals)
+        }
 
         ContextCompat.registerReceiver(
             this,
@@ -161,12 +168,12 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
                 packageName = reminder.packageName,
                 appLabel = label,
                 icon = info?.icon,
-                text = reminderText(reminder.sessionMinutes, label),
+                text = reminderText(reminder.minutes, label, reminder.kind),
                 snoozeMinutes = tracker.settings.snoozeMinutes,
             )
             val shownAsPill = overlay.show(content)
             if (!shownAsPill) app.notifier.showReminder(content)
-            Log.i(TAG, "Reminder for ${reminder.packageName} at ${reminder.sessionMinutes} min, pill=$shownAsPill")
+            Log.i(TAG, "${reminder.kind} reminder for ${reminder.packageName} at ${reminder.minutes} min, pill=$shownAsPill")
         }
     }
 

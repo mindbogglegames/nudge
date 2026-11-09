@@ -4,11 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -32,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +59,7 @@ import se.christian.nudge.apps.AppInfo
 import se.christian.nudge.session.formatMinutes
 import se.christian.nudge.settings.Settings
 
-private enum class GlobalSheet { Threshold, Advanced }
+private enum class GlobalSheet { Threshold, Daily, Advanced }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,11 +114,31 @@ fun MainScreen(
                 )
             }
             item { Spacer(Modifier.size(8.dp)) }
+            item { SectionTitle("Remind me") }
             item {
-                SettingRow(
-                    title = "Remind me after",
-                    summary = formatMinutes(settings.defaultThresholdMinutes.toLong()) + " of continuous use",
+                SwitchSettingRow(
+                    title = "Continuous use",
+                    summary = if (settings.continuousRemindersEnabled) {
+                        "After ${formatMinutes(settings.defaultThresholdMinutes.toLong())} in a row"
+                    } else {
+                        "Off"
+                    },
+                    checked = settings.continuousRemindersEnabled,
+                    onCheckedChange = viewModel::setContinuousEnabled,
                     onClick = { openSheet = GlobalSheet.Threshold },
+                )
+            }
+            item {
+                SwitchSettingRow(
+                    title = "Daily total",
+                    summary = if (settings.dailyRemindersEnabled) {
+                        "After ${formatMinutes(settings.defaultDailyLimitMinutes.toLong())} a day in an app · resets at midnight"
+                    } else {
+                        "Off"
+                    },
+                    checked = settings.dailyRemindersEnabled,
+                    onCheckedChange = viewModel::setDailyEnabled,
+                    onClick = { openSheet = GlobalSheet.Daily },
                 )
             }
             item {
@@ -141,14 +164,7 @@ fun MainScreen(
                     Text("Show test reminder")
                 }
             }
-            item {
-                Text(
-                    text = "Apps",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp),
-                )
-            }
+            item { SectionTitle("Apps", modifier = Modifier.padding(top = 16.dp)) }
             item {
                 Text(
                     text = "Reminders are off for every app until you turn them on here.",
@@ -198,6 +214,11 @@ fun MainScreen(
             onChange = viewModel::setDefaultThreshold,
             onDismiss = { openSheet = null },
         )
+        GlobalSheet.Daily -> DailyTotalSheet(
+            settings = settings,
+            viewModel = viewModel,
+            onDismiss = { openSheet = null },
+        )
         GlobalSheet.Advanced -> AdvancedSheet(
             settings = settings,
             viewModel = viewModel,
@@ -239,6 +260,48 @@ private fun SettingRow(title: String, summary: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
+    )
+}
+
+/** Android Settings "primary switch" row: tapping the text opens details, the switch toggles. */
+@Composable
+private fun SwitchSettingRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(summary) },
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onClick),
+        )
+        VerticalDivider(Modifier.padding(vertical = 16.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+        )
+    }
+}
+
+@Composable
 private fun SearchField(query: String, onQueryChange: (String) -> Unit, enabled: Boolean, modifier: Modifier = Modifier) {
     TextField(
         value = query,
@@ -273,11 +336,21 @@ private fun AppRow(app: AppInfo, settings: Settings, enabled: Boolean, onToggle:
     )
 }
 
-/** "After 15 min", "After 30 min · custom" or "Off". */
+/** "15 min in a row · 1 h a day", "30 min in a row · custom", "1 h a day" or "Off". */
 fun appSubtitle(packageName: String, settings: Settings): String {
     if (!settings.isAppEnabled(packageName)) return "Off"
-    val after = "After ${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())}"
-    return if (packageName in settings.thresholdOverrides) "$after · custom" else after
+    val parts = buildList {
+        if (settings.continuousRemindersEnabled) {
+            add("${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())} in a row")
+        }
+        if (settings.dailyRemindersEnabled) {
+            add("${formatMinutes(settings.dailyLimitMinutesFor(packageName).toLong())} a day")
+        }
+        val custom = (settings.continuousRemindersEnabled && packageName in settings.thresholdOverrides) ||
+            (settings.dailyRemindersEnabled && packageName in settings.dailyLimitOverrides)
+        if (custom) add("custom")
+    }
+    return if (parts.isEmpty()) "On" else parts.joinToString(" · ")
 }
 
 private fun advancedSummary(settings: Settings): String {
@@ -309,14 +382,19 @@ fun SwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Uni
 }
 
 @Composable
-fun SheetHeader(icon: AppInfo?, title: String) {
+fun SheetHeader(icon: AppInfo?, title: String, subtitle: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
         if (icon != null) {
             val image = remember(icon.icon) { icon.icon.asImageBitmap() }
             Image(image, contentDescription = null, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(16.dp))
         }
-        Column { Text(title, style = MaterialTheme.typography.headlineSmall) }
+        Column {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

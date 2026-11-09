@@ -11,6 +11,9 @@ fun formatMinutes(totalMinutes: Long): String {
     }
 }
 
-/** "15 min on YouTube". */
-fun reminderText(sessionMinutes: Long, appLabel: String): String =
-    "${formatMinutes(sessionMinutes)} on $appLabel"
+/** "15 min on YouTube" for a session; "1 h on YouTube today" for a daily total. */
+fun reminderText(minutes: Long, appLabel: String, kind: ReminderKind = ReminderKind.Continuous): String =
+    when (kind) {
+        ReminderKind.Continuous -> "${formatMinutes(minutes)} on $appLabel"
+        ReminderKind.Daily -> "${formatMinutes(minutes)} on $appLabel today"
+    }

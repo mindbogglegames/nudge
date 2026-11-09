@@ -42,6 +42,7 @@ fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolea
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val sheetPackage by viewModel.sheetPackage.collectAsStateWithLifecycle()
+    val todayUsage by viewModel.todayUsage.collectAsStateWithLifecycle()
     val requestPermission = rememberPermissionRequester()
     val currentSettings = settings
 
@@ -73,6 +74,7 @@ fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolea
                     app = app,
                     packageName = packageName,
                     settings = currentSettings,
+                    usedTodayMs = todayUsage[packageName] ?: 0L,
                     viewModel = viewModel,
                     onDismiss = { viewModel.openAppSheet(null) },
                 )

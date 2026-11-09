@@ -2,6 +2,7 @@ package se.christian.nudge.settings
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -45,10 +46,28 @@ class SettingsRepository(context: Context) {
     }
 
     /** null removes the override, so the app follows the default threshold. */
-    suspend fun setThresholdOverride(packageName: String, minutes: Int?) = store.edit {
-        val overrides = it.thresholdOverrides()
+    suspend fun setThresholdOverride(packageName: String, minutes: Int?) =
+        store.edit { it.setOverride(THRESHOLD_OVERRIDES, packageName, minutes) }
+
+    suspend fun setContinuousRemindersEnabled(enabled: Boolean) = store.edit { it[CONTINUOUS_ENABLED] = enabled }
+
+    suspend fun setDailyRemindersEnabled(enabled: Boolean) = store.edit { it[DAILY_ENABLED] = enabled }
+
+    suspend fun setDefaultDailyLimitMinutes(minutes: Int) =
+        store.edit { it[DEFAULT_DAILY_LIMIT] = minutes.coerceIn(1, MAX_MINUTES) }
+
+    /** null means remind only once a day. */
+    suspend fun setDailyRepeatIntervalMinutes(minutes: Int?) =
+        store.edit { it[DAILY_REPEAT] = minutes?.coerceIn(1, MAX_MINUTES) ?: DAILY_REPEAT_ONCE }
+
+    /** null removes the override, so the app follows the default daily limit. */
+    suspend fun setDailyLimitOverride(packageName: String, minutes: Int?) =
+        store.edit { it.setOverride(DAILY_LIMIT_OVERRIDES, packageName, minutes) }
+
+    private fun MutablePreferences.setOverride(key: Preferences.Key<String>, packageName: String, minutes: Int?) {
+        val overrides = overrides(key)
         val updated = if (minutes == null) overrides - packageName else overrides + (packageName to minutes.coerceIn(1, MAX_MINUTES))
-        it[THRESHOLD_OVERRIDES] = Json.encodeToString(updated)
+        this[key] = Json.encodeToString(updated)
     }
 
     private fun Preferences.toSettings() = Settings(
@@ -57,12 +76,21 @@ class SettingsRepository(context: Context) {
         repeatIntervalMinutes = this[REPEAT_INTERVAL],
         gracePeriodSeconds = this[GRACE_PERIOD] ?: 120,
         snoozeMinutes = this[SNOOZE] ?: 10,
+        continuousRemindersEnabled = this[CONTINUOUS_ENABLED] ?: true,
+        dailyRemindersEnabled = this[DAILY_ENABLED] ?: false,
+        defaultDailyLimitMinutes = this[DEFAULT_DAILY_LIMIT] ?: 60,
+        dailyRepeatIntervalMinutes = when (val repeat = this[DAILY_REPEAT]) {
+            null -> 15
+            DAILY_REPEAT_ONCE -> null
+            else -> repeat
+        },
         enabledPackages = this[ENABLED_PACKAGES].orEmpty(),
-        thresholdOverrides = thresholdOverrides(),
+        thresholdOverrides = overrides(THRESHOLD_OVERRIDES),
+        dailyLimitOverrides = overrides(DAILY_LIMIT_OVERRIDES),
     )
 
-    private fun Preferences.thresholdOverrides(): Map<String, Int> =
-        this[THRESHOLD_OVERRIDES]?.let { json ->
+    private fun Preferences.overrides(key: Preferences.Key<String>): Map<String, Int> =
+        this[key]?.let { json ->
             runCatching { Json.decodeFromString<Map<String, Int>>(json) }.getOrNull()
         }.orEmpty()
 
@@ -77,5 +105,13 @@ class SettingsRepository(context: Context) {
         private val SNOOZE = intPreferencesKey("snooze_minutes")
         private val ENABLED_PACKAGES = stringSetPreferencesKey("enabled_packages")
         private val THRESHOLD_OVERRIDES = stringPreferencesKey("threshold_overrides")
+        private val CONTINUOUS_ENABLED = booleanPreferencesKey("continuous_reminders_enabled")
+        private val DAILY_ENABLED = booleanPreferencesKey("daily_reminders_enabled")
+        private val DEFAULT_DAILY_LIMIT = intPreferencesKey("default_daily_limit_minutes")
+        private val DAILY_REPEAT = intPreferencesKey("daily_repeat_interval_minutes")
+        private val DAILY_LIMIT_OVERRIDES = stringPreferencesKey("daily_limit_overrides")
+
+        /** Stored for "only once a day"; an absent key means the default. */
+        private const val DAILY_REPEAT_ONCE = 0
     }
 }

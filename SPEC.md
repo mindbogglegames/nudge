@@ -3,7 +3,7 @@
 Technical constraints, architecture and commands are in `.claude/CLAUDE.md`. This file describes behavior.
 
 ## Goal
-Replicate Android Digital Wellbeing's "Screen time reminders" (see `/reference`), with a user-configurable reminder time. After N minutes of continuous use of an app, a pill slides in at the top of the screen showing the app icon and e.g. "15 min on YouTube". It never blocks the app.
+Replicate Android Digital Wellbeing's "Screen time reminders" (see `/reference`), with a user-configurable reminder time. After N minutes of continuous use of an app, a pill slides in at the top of the screen showing the app icon and e.g. "15 min on YouTube". Optionally, a second reminder type fires when an app's total use for the day reaches a limit ("1 h on YouTube today"). It never blocks the app.
 
 ## Foreground app detection
 - Poll every 5 s, only while the screen is on and unlocked.
@@ -19,18 +19,29 @@ Replicate Android Digital Wellbeing's "Screen time reminders" (see `/reference`)
 - First reminder when session time >= the app's threshold, then repeat every repeat interval (default: same as the threshold) while the session continues.
 - Snooze: suppress reminders for that package for the snooze duration (default 10 min), in memory only. If the session is still running when the snooze ends, remind immediately, then continue the repeat interval from there.
 - Never remind for apps that aren't turned on, ignored packages, or when the master toggle is off.
+- Continuous reminders only fire while `continuousRemindersEnabled` is on (default on).
 - Reminder text uses the current session length: "15 min on YouTube"; at 60+ min, "1 h 5 min on YouTube".
 
-Required unit tests: apps are off by default; threshold reached gives exactly one reminder; repeat interval; switching away within grace keeps the session; switching away beyond grace resets; screen off within/beyond grace; snooze suppresses then resumes; per-app threshold override; disabled app never reminds; ignored packages never tracked.
+## Daily total rules (`SessionTracker`)
+- Only while `dailyRemindersEnabled` is on (default off). Same app gating as continuous reminders: master toggle, `enabledPackages`, ignored packages.
+- An app's daily total is all its foreground time today, across sessions. Away time (other app, launcher, screen off) isn't counted; the grace period doesn't apply.
+- Totals reset at local midnight. Use that runs across midnight counts toward the new day from midnight.
+- On service start, seed today's totals from `UsageStatsManager` events since midnight (with a few hours of lookback to catch an app already open at midnight; screen-off and keyguard time excluded), so use before the service started counts. Reminder points already passed in the seeded total count as shown, so a restart doesn't repeat a reminder.
+- First daily reminder when the total >= the app's daily limit, then every `dailyRepeatIntervalMinutes` of further use (default 15; null = only once a day). If the limit is raised above the last reminder, the next reminder is at the new limit.
+- Snooze covers both types for that package. When it ends, a type that had already reminded and is still running reminds immediately, as for continuous reminders. A type that hadn't reminded yet is not brought forward.
+- If both types are due on the same poll, show one reminder: the daily one. Both count as shown.
+- Daily reminder text: "1 h on YouTube today", "1 h 15 min on YouTube today".
+
+Required unit tests: apps are off by default; threshold reached gives exactly one reminder; repeat interval; switching away within grace keeps the session; switching away beyond grace resets; screen off within/beyond grace; snooze suppresses then resumes; per-app threshold override; disabled app never reminds; ignored packages never tracked. Daily: separate sessions add up; away time not counted; repeat interval and "only once"; midnight reset (also mid-use); per-app daily limit; daily off / app off never reminds; seeded totals below and past the limit; snooze; daily wins when both are due; adding up usage events (activity switches, screen off and keyguard, app open at midnight).
 
 ## Settings model
-- Global: `remindersEnabled` (default false), `defaultThresholdMinutes` (15), `repeatIntervalMinutes` (null = same as threshold), `gracePeriodSeconds` (120), `snoozeMinutes` (10).
-- Per-app settings: `enabledPackages: Set<String>`, `thresholdOverrides: Map<String, Int>`. Reminders are opt-in per app: an app gets reminders only if it's in `enabledPackages`, so every app, including newly installed ones, is off until the user turns it on. Enabled apps without an override use the default threshold.
+- Global: `remindersEnabled` (default false), `continuousRemindersEnabled` (true), `defaultThresholdMinutes` (15), `repeatIntervalMinutes` (null = same as threshold), `gracePeriodSeconds` (120), `snoozeMinutes` (10), `dailyRemindersEnabled` (false), `defaultDailyLimitMinutes` (60), `dailyRepeatIntervalMinutes` (15; null = only once a day).
+- Per-app settings: `enabledPackages: Set<String>`, `thresholdOverrides: Map<String, Int>`, `dailyLimitOverrides: Map<String, Int>`. Reminder types are switched on and off globally; apps override only the time. Reminders are opt-in per app: an app gets reminders only if it's in `enabledPackages`, so every app, including newly installed ones, is off until the user turns it on. Enabled apps without an override use the default threshold.
 - The service observes the settings Flow and applies changes live.
 
 ## The pill (primary reminder UI)
 - Top center, just below the status bar (use the status bar insets from `WindowManager.currentWindowMetrics`).
-- Collapsed: fully rounded pill, app icon (24 dp) + "15 min on YouTube", surface container color with subtle elevation, matching the reference screenshots.
+- Collapsed: fully rounded pill, app icon (24 dp) + "15 min on YouTube" (or "1 h on YouTube today" for a daily total), surface container color with subtle elevation, matching the reference screenshots.
 - Animation: slide down + fade in; slide up + fade out.
 - Auto-dismiss after 6 s if untouched. Swipe up to dismiss.
 - Tap: expand in place (`animateContentSize`) into a small card with actions:
@@ -65,11 +76,13 @@ Re-check all permission states in `onResume`. On the main screen, show a card fo
 - Edge-to-edge (`enableEdgeToEdge`, handle insets), large collapsing top app bar.
 - Prominent "Use reminders" main switch in a rounded filled container, like Android's settings main switch.
 - Permission warning cards when anything is missing.
-- "Remind me after" row: default threshold.
-- "Advanced" row: repeat interval, grace period, snooze length.
+- "Remind me" section with two switch rows (Android Settings primary-switch style: text opens a sheet, the switch toggles the type):
+  - "Continuous use" ("After 15 min in a row" / "Off"): sheet with the default threshold.
+  - "Daily total" ("After 1 h a day in an app · resets at midnight" / "Off"): sheet with the default daily limit (chips 15/30/45 min, 1 h, 1 h 30 min, 2 h, 3 h, "Custom") and "After that, remind me every" ("Only once", 5/10/15/30 min, 1 h).
+- "Advanced" row: repeat interval, grace period, snooze length (continuous use).
 - "Show test reminder" button: shows the pill immediately for a sample app.
-- "Apps" section: search field, then launchable apps sorted by name (excluding this app and the launcher), each with icon, name, subtitle ("After 15 min", "After 30 min · custom", or "Off") and a switch.
-- Tapping an app row opens a `ModalBottomSheet`: enable switch, threshold chips 5/10/15/20/30/45/60 min, "Custom" (number input) and "Use default".
+- "Apps" section: search field, then launchable apps sorted by name (excluding this app and the launcher), each with icon, name, subtitle (the active types, e.g. "15 min in a row · 1 h a day", "30 min in a row · custom", or "Off") and a switch.
+- Tapping an app row opens a `ModalBottomSheet`: "Used 47 min today" under the name, enable switch, then a "Continuous use" section (threshold chips 5/10/15/20/30/45/60 min, "Custom", "Use default") and a "Daily total" section (daily limit chips, "Custom", "Use default"). A section is shown only while its type is on.
 - Dim and disable the app list when the main switch is off.
 
 ## Known limitations (document in README)

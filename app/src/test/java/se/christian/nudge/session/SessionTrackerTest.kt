@@ -40,14 +40,14 @@ class SessionTrackerTest {
     @Test
     fun `repeats every threshold by default`() {
         val reminders = use(YOUTUBE, 46.0)
-        assertEquals(listOf(15L, 30L, 45L), reminders.map { it.sessionMinutes })
+        assertEquals(listOf(15L, 30L, 45L), reminders.map { it.minutes })
     }
 
     @Test
     fun `custom repeat interval`() {
         tracker.settings = enabled.copy(repeatIntervalMinutes = 5)
         val reminders = use(YOUTUBE, 26.0)
-        assertEquals(listOf(15L, 20L, 25L), reminders.map { it.sessionMinutes })
+        assertEquals(listOf(15L, 20L, 25L), reminders.map { it.minutes })
     }
 
     @Test
@@ -108,7 +108,7 @@ class SessionTrackerTest {
         assertTrue(use(YOUTUBE, 9.9).isEmpty()) // 20 min reminder suppressed
         assertEquals(listOf(Reminder(YOUTUBE, 25)), use(YOUTUBE, 0.2))
         // The repeat interval continues from the snooze end: next at 30.
-        assertEquals(listOf(30L), use(YOUTUBE, 5.0).map { it.sessionMinutes })
+        assertEquals(listOf(30L), use(YOUTUBE, 5.0).map { it.minutes })
     }
 
     @Test
@@ -128,8 +128,8 @@ class SessionTrackerTest {
     @Test
     fun `per-app threshold override`() {
         tracker.settings = enabled.copy(thresholdOverrides = mapOf(YOUTUBE to 5))
-        assertEquals(listOf(5L, 10L, 15L), use(YOUTUBE, 16.0).map { it.sessionMinutes })
-        assertEquals(listOf(15L), use(CHROME, 16.0).map { it.sessionMinutes })
+        assertEquals(listOf(5L, 10L, 15L), use(YOUTUBE, 16.0).map { it.minutes })
+        assertEquals(listOf(15L), use(CHROME, 16.0).map { it.minutes })
     }
 
     @Test
