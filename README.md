@@ -29,7 +29,7 @@ Nudge rebuilds that experience and puts you in control:
 
 - **You choose the apps.** Reminders are opt-in per app; everything starts off.
 - **You choose the timing.** A default reminder time (5 min to 1 h, or any custom value), per-app overrides, and how often it repeats.
-- **Continuous use, daily total, or both.** Get reminded after 15 min in a row, after 1 h in an app over the whole day, or both. Daily totals reset at midnight.
+- **Continuous use, daily total, or both.** Get reminded after 15 min of continuous use, after 1 h of use in a day, or both, and pick per app (say, a daily total only for Instagram). Daily totals reset at midnight.
 - **It's forgiving.** Checking a message and coming back within the grace period (2 min by default) continues the same session. Time away isn't counted.
 - **It's not in your way.** The pill disappears after 6 seconds, swipes away, and never takes focus from the app you're using.
 - **It's private.** No internet permission, no analytics, no backups. Nothing leaves the phone.
@@ -154,7 +154,7 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 <summary>Design and implementation decisions (click to expand)</summary>
 
 - **Reminders are opt-in per app** (changed after the initial build). The original spec enabled every app not listed in `disabledPackages`; settings now store `enabledPackages` instead, and an app gets reminders only if it's in that set. Newly installed apps start off. "Turn off for this app" removes the app from the set. There's no migration from `disabled_packages`, because no build with the old model was installed beyond testing.
-- **Daily totals are a second reminder type, not a mode switch.** Continuous use and daily total each have a global switch, so you can run either or both. Per app, only the time is overridden (`thresholdOverrides`, `dailyLimitOverrides`); a per-app choice of type was left out to keep the sheet simple.
+- **Daily totals are a second reminder type, not a mode switch.** Continuous use and daily total each have a global switch, so you can run either or both. Per app, each type can be turned off (`continuousOffPackages`, `dailyOffPackages`) and its time overridden (`thresholdOverrides`, `dailyLimitOverrides`). The per-app switches are stored as "off" sets so a newly enabled app follows the global types.
 - **Daily totals are counted live in `SessionTracker`** and seeded once from `UsageStatsManager` events when the service starts. Live counting needs no extra queries per poll; seeding covers use before the service started. Re-seeding on every screen-on was rejected because it would overwrite the live count with the system's (sometimes late) event log.
 - **When both reminder types are due on the same poll, only the daily one is shown** ("… today" carries more information), and both count as shown. Otherwise they repeat independently.
 - **Snoozing brings back only the types that had already reminded.** Without that, snoozing a continuous reminder would fire a daily reminder at the end of the snooze before the daily limit was reached.

@@ -180,8 +180,8 @@ class SessionTracker(
         if (!settings.remindersEnabled || !settings.isAppEnabled(pkg)) return null
         if (snoozedUntil[pkg]?.let { now < it } == true) return null
         // Evaluate both so each records its reminder; when both are due at once, show the daily one.
-        val continuous = if (settings.continuousRemindersEnabled) evaluateContinuous(pkg, now) else null
-        val daily = if (settings.dailyRemindersEnabled) evaluateDaily(pkg) else null
+        val continuous = if (settings.isContinuousOn(pkg)) evaluateContinuous(pkg, now) else null
+        val daily = if (settings.isDailyOn(pkg)) evaluateDaily(pkg) else null
         return daily ?: continuous
     }
 

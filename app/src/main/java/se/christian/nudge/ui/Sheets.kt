@@ -1,15 +1,19 @@
 package se.christian.nudge.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.christian.nudge.apps.AppInfo
@@ -37,12 +41,8 @@ private fun NudgeSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
 fun DefaultThresholdSheet(settings: Settings, onChange: (Int) -> Unit, onDismiss: () -> Unit) {
     NudgeSheet(onDismiss) {
         SheetHeader(icon = null, title = "Continuous use")
-        Text(
-            text = "Get a reminder after using an app this long in a row. Applies to every app without its own setting.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 16.dp),
-        )
+        SheetHint(continuousHint(settings.defaultThresholdMinutes))
+        SheetHint("Applies to every app without its own setting.", modifier = Modifier.padding(bottom = 8.dp))
         ThresholdPicker(
             value = settings.defaultThresholdMinutes,
             onValueChange = { minutes -> minutes?.let(onChange) },
@@ -54,13 +54,11 @@ fun DefaultThresholdSheet(settings: Settings, onChange: (Int) -> Unit, onDismiss
 fun DailyTotalSheet(settings: Settings, viewModel: MainViewModel, onDismiss: () -> Unit) {
     NudgeSheet(onDismiss) {
         SheetHeader(icon = null, title = "Daily total")
-        Text(
-            text = "Get a reminder when you've used an app this long today, adding up every visit. " +
-                "Totals reset at midnight. Applies to every app without its own setting.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SheetHint(dailyHint(settings.defaultDailyLimitMinutes))
+        SheetHint(
+            "Adds up every visit to an app. Totals reset at midnight. Applies to every app without its own setting.",
+            modifier = Modifier.padding(bottom = 8.dp),
         )
-        SheetSectionTitle("Remind me after")
         ThresholdPicker(
             value = settings.defaultDailyLimitMinutes,
             onValueChange = { minutes -> minutes?.let(viewModel::setDefaultDailyLimit) },
@@ -134,25 +132,45 @@ fun AppSettingsSheet(
             onCheckedChange = { viewModel.setAppEnabled(packageName, it) },
         )
         if (settings.continuousRemindersEnabled) {
-            SheetSectionTitle("Continuous use", modifier = Modifier.padding(top = 8.dp))
-            SheetHint("Remind me after this long in a row")
-            ThresholdPicker(
-                value = settings.thresholdOverrides[packageName],
-                onValueChange = { viewModel.setThresholdOverride(packageName, it) },
-                defaultMinutes = settings.defaultThresholdMinutes,
+            val on = settings.isContinuousOn(packageName)
+            SectionSwitchHeader(
+                title = "Continuous use",
+                checked = on,
+                onCheckedChange = { viewModel.setAppContinuousEnabled(packageName, it) },
                 enabled = enabled,
             )
+            if (on) {
+                SheetHint(continuousHint(settings.thresholdMinutesFor(packageName)))
+                ThresholdPicker(
+                    value = settings.thresholdOverrides[packageName],
+                    onValueChange = { viewModel.setThresholdOverride(packageName, it) },
+                    defaultMinutes = settings.defaultThresholdMinutes,
+                    enabled = enabled,
+                )
+            } else {
+                SheetHint("Off for this app")
+            }
         }
         if (settings.dailyRemindersEnabled) {
-            SheetSectionTitle("Daily total", modifier = Modifier.padding(top = 8.dp))
-            SheetHint("Remind me after this much today")
-            ThresholdPicker(
-                value = settings.dailyLimitOverrides[packageName],
-                onValueChange = { viewModel.setDailyLimitOverride(packageName, it) },
-                defaultMinutes = settings.defaultDailyLimitMinutes,
+            val on = settings.isDailyOn(packageName)
+            SectionSwitchHeader(
+                title = "Daily total",
+                checked = on,
+                onCheckedChange = { viewModel.setAppDailyEnabled(packageName, it) },
                 enabled = enabled,
-                presets = DAILY_LIMIT_PRESETS,
             )
+            if (on) {
+                SheetHint(dailyHint(settings.dailyLimitMinutesFor(packageName)))
+                ThresholdPicker(
+                    value = settings.dailyLimitOverrides[packageName],
+                    onValueChange = { viewModel.setDailyLimitOverride(packageName, it) },
+                    defaultMinutes = settings.defaultDailyLimitMinutes,
+                    enabled = enabled,
+                    presets = DAILY_LIMIT_PRESETS,
+                )
+            } else {
+                SheetHint("Off for this app")
+            }
         }
         if (!settings.continuousRemindersEnabled && !settings.dailyRemindersEnabled) {
             SheetHint(
@@ -162,6 +180,31 @@ fun AppSettingsSheet(
         }
     }
 }
+
+/** Section title with a switch, for turning one reminder type on or off for a single app. */
+@Composable
+private fun SectionSwitchHeader(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 4.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    }
+}
+
+/** "Remind me after 15 min of continuous use". */
+fun continuousHint(minutes: Int): String = "Remind me after ${formatMinutes(minutes.toLong())} of continuous use"
+
+/** "Remind me after 1 h of use each day". */
+fun dailyHint(minutes: Int): String = "Remind me after ${formatMinutes(minutes.toLong())} of use each day"
 
 @Composable
 private fun SheetHint(text: String, modifier: Modifier = Modifier) {

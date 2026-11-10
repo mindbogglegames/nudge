@@ -19,8 +19,19 @@ data class Settings(
     val enabledPackages: Set<String> = emptySet(),
     val thresholdOverrides: Map<String, Int> = emptyMap(),
     val dailyLimitOverrides: Map<String, Int> = emptyMap(),
+    /** Enabled apps that skip continuous use reminders while the global type is on. */
+    val continuousOffPackages: Set<String> = emptySet(),
+    /** Enabled apps that skip daily total reminders while the global type is on. */
+    val dailyOffPackages: Set<String> = emptySet(),
 ) {
     fun isAppEnabled(packageName: String): Boolean = packageName in enabledPackages
+
+    /** Continuous use reminders apply to [packageName] (ignores [isAppEnabled] and [remindersEnabled]). */
+    fun isContinuousOn(packageName: String): Boolean =
+        continuousRemindersEnabled && packageName !in continuousOffPackages
+
+    /** Daily total reminders apply to [packageName] (ignores [isAppEnabled] and [remindersEnabled]). */
+    fun isDailyOn(packageName: String): Boolean = dailyRemindersEnabled && packageName !in dailyOffPackages
 
     fun thresholdMinutesFor(packageName: String): Int =
         thresholdOverrides[packageName] ?: defaultThresholdMinutes

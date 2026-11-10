@@ -119,26 +119,28 @@ fun MainScreen(
                 SwitchSettingRow(
                     title = "Continuous use",
                     summary = if (settings.continuousRemindersEnabled) {
-                        "After ${formatMinutes(settings.defaultThresholdMinutes.toLong())} in a row"
+                        "After ${formatMinutes(settings.defaultThresholdMinutes.toLong())} of continuous use"
                     } else {
                         "Off"
                     },
                     checked = settings.continuousRemindersEnabled,
                     onCheckedChange = viewModel::setContinuousEnabled,
                     onClick = { openSheet = GlobalSheet.Threshold },
+                    enabled = listEnabled,
                 )
             }
             item {
                 SwitchSettingRow(
                     title = "Daily total",
                     summary = if (settings.dailyRemindersEnabled) {
-                        "After ${formatMinutes(settings.defaultDailyLimitMinutes.toLong())} a day in an app · resets at midnight"
+                        "After ${formatMinutes(settings.defaultDailyLimitMinutes.toLong())} of use each day"
                     } else {
                         "Off"
                     },
                     checked = settings.dailyRemindersEnabled,
                     onCheckedChange = viewModel::setDailyEnabled,
                     onClick = { openSheet = GlobalSheet.Daily },
+                    enabled = listEnabled,
                 )
             }
             item {
@@ -146,6 +148,7 @@ fun MainScreen(
                     title = "Advanced",
                     summary = advancedSummary(settings),
                     onClick = { openSheet = GlobalSheet.Advanced },
+                    enabled = listEnabled,
                 )
             }
             item {
@@ -249,12 +252,13 @@ private fun MainSwitchBar(checked: Boolean, onCheckedChange: (Boolean) -> Unit, 
 }
 
 @Composable
-private fun SettingRow(title: String, summary: String, onClick: () -> Unit) {
+private fun SettingRow(title: String, summary: String, onClick: () -> Unit, enabled: Boolean = true) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(summary) },
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp),
     )
 }
@@ -277,11 +281,13 @@ private fun SwitchSettingRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -290,12 +296,13 @@ private fun SwitchSettingRow(
             supportingContent = { Text(summary) },
             modifier = Modifier
                 .weight(1f)
-                .clickable(onClick = onClick),
+                .clickable(enabled = enabled, onClick = onClick),
         )
         VerticalDivider(Modifier.padding(vertical = 16.dp))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp),
         )
     }
@@ -336,21 +343,19 @@ private fun AppRow(app: AppInfo, settings: Settings, enabled: Boolean, onToggle:
     )
 }
 
-/** "15 min in a row · 1 h a day", "30 min in a row · custom", "1 h a day" or "Off". */
+/** "15 min continuous · 1 h daily", "30 min continuous · custom", "1 h daily" or "Off". */
 fun appSubtitle(packageName: String, settings: Settings): String {
     if (!settings.isAppEnabled(packageName)) return "Off"
+    val continuous = settings.isContinuousOn(packageName)
+    val daily = settings.isDailyOn(packageName)
     val parts = buildList {
-        if (settings.continuousRemindersEnabled) {
-            add("${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())} in a row")
-        }
-        if (settings.dailyRemindersEnabled) {
-            add("${formatMinutes(settings.dailyLimitMinutesFor(packageName).toLong())} a day")
-        }
-        val custom = (settings.continuousRemindersEnabled && packageName in settings.thresholdOverrides) ||
-            (settings.dailyRemindersEnabled && packageName in settings.dailyLimitOverrides)
+        if (continuous) add("${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())} continuous")
+        if (daily) add("${formatMinutes(settings.dailyLimitMinutesFor(packageName).toLong())} daily")
+        val custom = (continuous && packageName in settings.thresholdOverrides) ||
+            (daily && packageName in settings.dailyLimitOverrides)
         if (custom) add("custom")
     }
-    return if (parts.isEmpty()) "On" else parts.joinToString(" · ")
+    return if (parts.isEmpty()) "Off" else parts.joinToString(" · ")
 }
 
 private fun advancedSummary(settings: Settings): String {

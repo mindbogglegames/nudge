@@ -183,6 +183,27 @@ class DailyTotalTest {
     }
 
     @Test
+    fun `app with daily total only gets no continuous reminders`() {
+        tracker.settings = dailyOnly.copy(continuousRemindersEnabled = true, continuousOffPackages = setOf(YOUTUBE))
+        assertEquals(daily(60), use(YOUTUBE, 61.0))
+        assertEquals(listOf(15L, 30L, 45L, 60L), use(CHROME, 61.0).map { it.minutes })
+    }
+
+    @Test
+    fun `app with continuous use only gets no daily reminders`() {
+        tracker.settings = dailyOnly.copy(continuousRemindersEnabled = true, dailyOffPackages = setOf(YOUTUBE))
+        val reminders = use(YOUTUBE, 61.0)
+        assertEquals(listOf(15L, 30L, 45L, 60L), reminders.map { it.minutes })
+        assertTrue(reminders.all { it.kind == ReminderKind.Continuous })
+    }
+
+    @Test
+    fun `per-app type switch only applies while the global type is on`() {
+        tracker.settings = dailyOnly.copy(dailyRemindersEnabled = false, continuousOffPackages = setOf(YOUTUBE))
+        assertTrue(use(YOUTUBE, 120.0).isEmpty())
+    }
+
+    @Test
     fun `daily reminder text`() {
         assertEquals("1 h on YouTube today", reminderText(60, "YouTube", ReminderKind.Daily))
         assertEquals("1 h 15 min on YouTube today", reminderText(75, "YouTube", ReminderKind.Daily))

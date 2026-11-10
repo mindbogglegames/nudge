@@ -64,6 +64,19 @@ class SettingsRepository(context: Context) {
     suspend fun setDailyLimitOverride(packageName: String, minutes: Int?) =
         store.edit { it.setOverride(DAILY_LIMIT_OVERRIDES, packageName, minutes) }
 
+    /** Turns continuous use reminders on or off for one app, leaving its other settings alone. */
+    suspend fun setAppContinuousEnabled(packageName: String, enabled: Boolean) =
+        store.edit { it.toggle(CONTINUOUS_OFF_PACKAGES, packageName, off = !enabled) }
+
+    /** Turns daily total reminders on or off for one app, leaving its other settings alone. */
+    suspend fun setAppDailyEnabled(packageName: String, enabled: Boolean) =
+        store.edit { it.toggle(DAILY_OFF_PACKAGES, packageName, off = !enabled) }
+
+    private fun MutablePreferences.toggle(key: Preferences.Key<Set<String>>, packageName: String, off: Boolean) {
+        val current = this[key].orEmpty()
+        this[key] = if (off) current + packageName else current - packageName
+    }
+
     private fun MutablePreferences.setOverride(key: Preferences.Key<String>, packageName: String, minutes: Int?) {
         val overrides = overrides(key)
         val updated = if (minutes == null) overrides - packageName else overrides + (packageName to minutes.coerceIn(1, MAX_MINUTES))
@@ -87,6 +100,8 @@ class SettingsRepository(context: Context) {
         enabledPackages = this[ENABLED_PACKAGES].orEmpty(),
         thresholdOverrides = overrides(THRESHOLD_OVERRIDES),
         dailyLimitOverrides = overrides(DAILY_LIMIT_OVERRIDES),
+        continuousOffPackages = this[CONTINUOUS_OFF_PACKAGES].orEmpty(),
+        dailyOffPackages = this[DAILY_OFF_PACKAGES].orEmpty(),
     )
 
     private fun Preferences.overrides(key: Preferences.Key<String>): Map<String, Int> =
@@ -110,6 +125,8 @@ class SettingsRepository(context: Context) {
         private val DEFAULT_DAILY_LIMIT = intPreferencesKey("default_daily_limit_minutes")
         private val DAILY_REPEAT = intPreferencesKey("daily_repeat_interval_minutes")
         private val DAILY_LIMIT_OVERRIDES = stringPreferencesKey("daily_limit_overrides")
+        private val CONTINUOUS_OFF_PACKAGES = stringSetPreferencesKey("continuous_off_packages")
+        private val DAILY_OFF_PACKAGES = stringSetPreferencesKey("daily_off_packages")
 
         /** Stored for "only once a day"; an absent key means the default. */
         private const val DAILY_REPEAT_ONCE = 0

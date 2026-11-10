@@ -74,6 +74,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setDailyRepeatInterval(minutes: Int?) = launch { repository.setDailyRepeatIntervalMinutes(minutes) }
     fun setDailyLimitOverride(packageName: String, minutes: Int?) =
         launch { repository.setDailyLimitOverride(packageName, minutes) }
+    fun setAppContinuousEnabled(packageName: String, enabled: Boolean) =
+        launch { repository.setAppContinuousEnabled(packageName, enabled) }
+    fun setAppDailyEnabled(packageName: String, enabled: Boolean) =
+        launch { repository.setAppDailyEnabled(packageName, enabled) }
 
     /** Re-reads today's foreground time per package (shown in the app sheet). */
     fun refreshTodayUsage() {
