@@ -72,6 +72,21 @@ class SettingsRepository(context: Context) {
     suspend fun setAppDailyEnabled(packageName: String, enabled: Boolean) =
         store.edit { it.toggle(DAILY_OFF_PACKAGES, packageName, off = !enabled) }
 
+    /** Sets the app's continuous use reminder message; null or blank goes back to the built-in one. */
+    suspend fun setContinuousMessage(packageName: String, message: String?) =
+        store.edit { it.setMessage(CONTINUOUS_MESSAGES, packageName, message) }
+
+    /** Sets the app's daily total reminder message; null or blank goes back to the built-in one. */
+    suspend fun setDailyMessage(packageName: String, message: String?) =
+        store.edit { it.setMessage(DAILY_MESSAGES, packageName, message) }
+
+    private fun MutablePreferences.setMessage(key: Preferences.Key<String>, packageName: String, message: String?) {
+        val messages = messages(key)
+        val text = message?.trim()?.take(MAX_MESSAGE_LENGTH)
+        val updated = if (text.isNullOrEmpty()) messages - packageName else messages + (packageName to text)
+        this[key] = Json.encodeToString(updated)
+    }
+
     private fun MutablePreferences.toggle(key: Preferences.Key<Set<String>>, packageName: String, off: Boolean) {
         val current = this[key].orEmpty()
         this[key] = if (off) current + packageName else current - packageName
@@ -102,6 +117,8 @@ class SettingsRepository(context: Context) {
         dailyLimitOverrides = overrides(DAILY_LIMIT_OVERRIDES),
         continuousOffPackages = this[CONTINUOUS_OFF_PACKAGES].orEmpty(),
         dailyOffPackages = this[DAILY_OFF_PACKAGES].orEmpty(),
+        continuousMessages = messages(CONTINUOUS_MESSAGES),
+        dailyMessages = messages(DAILY_MESSAGES),
     )
 
     private fun Preferences.overrides(key: Preferences.Key<String>): Map<String, Int> =
@@ -109,8 +126,16 @@ class SettingsRepository(context: Context) {
             runCatching { Json.decodeFromString<Map<String, Int>>(json) }.getOrNull()
         }.orEmpty()
 
+    private fun Preferences.messages(key: Preferences.Key<String>): Map<String, String> =
+        this[key]?.let { json ->
+            runCatching { Json.decodeFromString<Map<String, String>>(json) }.getOrNull()
+        }.orEmpty()
+
     companion object {
         const val MAX_MINUTES = 24 * 60
+
+        /** Long enough for a sentence; the collapsed pill shows one line and ellipsizes the rest. */
+        const val MAX_MESSAGE_LENGTH = 80
 
         private val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         private val REMINDERS_ENABLED = booleanPreferencesKey("reminders_enabled")
@@ -127,6 +152,8 @@ class SettingsRepository(context: Context) {
         private val DAILY_LIMIT_OVERRIDES = stringPreferencesKey("daily_limit_overrides")
         private val CONTINUOUS_OFF_PACKAGES = stringSetPreferencesKey("continuous_off_packages")
         private val DAILY_OFF_PACKAGES = stringSetPreferencesKey("daily_off_packages")
+        private val CONTINUOUS_MESSAGES = stringPreferencesKey("continuous_messages")
+        private val DAILY_MESSAGES = stringPreferencesKey("daily_messages")
 
         /** Stored for "only once a day"; an absent key means the default. */
         private const val DAILY_REPEAT_ONCE = 0

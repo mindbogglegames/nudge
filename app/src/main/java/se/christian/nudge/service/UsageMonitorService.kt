@@ -30,6 +30,7 @@ import se.christian.nudge.reminder.ReminderNotifier
 import se.christian.nudge.reminder.ReminderOverlay
 import se.christian.nudge.session.Reminder
 import se.christian.nudge.session.SessionTracker
+import se.christian.nudge.session.messageFor
 import se.christian.nudge.session.reminderText
 
 /**
@@ -168,7 +169,12 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
                 packageName = reminder.packageName,
                 appLabel = label,
                 icon = info?.icon,
-                text = reminderText(reminder.minutes, label, reminder.kind),
+                text = reminderText(
+                    reminder.minutes,
+                    label,
+                    reminder.kind,
+                    tracker.settings.messageFor(reminder.packageName, reminder.kind),
+                ),
                 snoozeMinutes = tracker.settings.snoozeMinutes,
             )
             val shownAsPill = overlay.show(content)

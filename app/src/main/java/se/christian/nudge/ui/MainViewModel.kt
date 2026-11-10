@@ -78,6 +78,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         launch { repository.setAppContinuousEnabled(packageName, enabled) }
     fun setAppDailyEnabled(packageName: String, enabled: Boolean) =
         launch { repository.setAppDailyEnabled(packageName, enabled) }
+    fun setContinuousMessage(packageName: String, message: String?) =
+        launch { repository.setContinuousMessage(packageName, message) }
+    fun setDailyMessage(packageName: String, message: String?) =
+        launch { repository.setDailyMessage(packageName, message) }
 
     /** Re-reads today's foreground time per package (shown in the app sheet). */
     fun refreshTodayUsage() {

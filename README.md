@@ -29,6 +29,7 @@ Nudge rebuilds that experience and puts you in control:
 
 - **You choose the apps.** Reminders are opt-in per app; everything starts off.
 - **You choose the timing.** A default reminder time (5 min to 1 h, or any custom value), per-app overrides, and how often it repeats.
+- **You choose the words.** Each app can have its own reminder message for continuous use and daily total, like "{time} on {app}, time for a break?".
 - **Continuous use, daily total, or both.** Get reminded after 15 min of continuous use, after 1 h of use in a day, or both, and pick per app (say, a daily total only for Instagram). Daily totals reset at midnight.
 - **It's forgiving.** Checking a message and coming back within the grace period (2 min by default) continues the same session. Time away isn't counted.
 - **It's not in your way.** The pill disappears after 6 seconds, swipes away, and never takes focus from the app you're using.
@@ -178,7 +179,8 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 - **A third notification channel, "Status"** (default importance), is used for "usage access was turned off" and the settings-launch fallback. Neither belongs on the silent "Monitoring" channel or the heads-up "Reminders" channel.
 - **On API 31–33** the service is started without a type, since `specialUse` only exists from API 34.
 - **No backup:** `allowBackup="false"` and data extraction rules that exclude everything, so settings never leave the phone.
-- **Per-app threshold and daily limit overrides** are stored as a JSON string (kotlinx.serialization) in DataStore, because Preferences DataStore has no map type.
+- **Per-app threshold and daily limit overrides** (and custom messages) are stored as JSON strings (kotlinx.serialization) in DataStore, because Preferences DataStore has no map type.
+- **Custom messages are templates with `{time}` and `{app}`** rather than free text, so a message still says how long you've been on the app at each repeat. The editor starts from the built-in text with its placeholders visible; saving the built-in text unchanged stores nothing, so the app keeps following the built-in wording. Messages are per app only; there's no global message, to keep the main screen simple.
 - **UI strings are in Kotlin, not `strings.xml`.** The app is English-only and personal; only the app name is a resource.
 - **Main screen title is "Nudge"** rather than "Screen time reminders", to match the launcher label.
 - **Visual design** follows Android 16 Settings and Digital Wellbeing: Material 3, dynamic color, a filled main switch, and a `surfaceContainer` pill with a 3 dp shadow. Screenshots in this README were taken on an Android 16 emulator.

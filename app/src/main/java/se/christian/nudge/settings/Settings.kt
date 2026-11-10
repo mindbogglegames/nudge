@@ -23,6 +23,10 @@ data class Settings(
     val continuousOffPackages: Set<String> = emptySet(),
     /** Enabled apps that skip daily total reminders while the global type is on. */
     val dailyOffPackages: Set<String> = emptySet(),
+    /** Per-app continuous use reminder messages with `{time}` and `{app}` placeholders; apps not listed use the built-in one. */
+    val continuousMessages: Map<String, String> = emptyMap(),
+    /** Per-app daily total reminder messages, like [continuousMessages]. */
+    val dailyMessages: Map<String, String> = emptyMap(),
 ) {
     fun isAppEnabled(packageName: String): Boolean = packageName in enabledPackages
 

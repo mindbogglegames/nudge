@@ -13,11 +13,17 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.christian.nudge.apps.AppInfo
+import se.christian.nudge.session.ReminderKind
 import se.christian.nudge.session.formatMinutes
+import se.christian.nudge.session.messageFor
 import se.christian.nudge.settings.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,8 +130,30 @@ fun AppSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val enabled = settings.isAppEnabled(packageName)
+    val label = app?.label ?: packageName
+    var editingMessage by rememberSaveable { mutableStateOf<ReminderKind?>(null) }
+    editingMessage?.let { kind ->
+        val minutes = when (kind) {
+            ReminderKind.Continuous -> settings.thresholdMinutesFor(packageName)
+            ReminderKind.Daily -> settings.dailyLimitMinutesFor(packageName)
+        }
+        MessageDialog(
+            minutes = minutes,
+            appLabel = label,
+            kind = kind,
+            message = settings.messageFor(packageName, kind),
+            onSave = { message ->
+                when (kind) {
+                    ReminderKind.Continuous -> viewModel.setContinuousMessage(packageName, message)
+                    ReminderKind.Daily -> viewModel.setDailyMessage(packageName, message)
+                }
+                editingMessage = null
+            },
+            onDismiss = { editingMessage = null },
+        )
+    }
     NudgeSheet(onDismiss) {
-        SheetHeader(icon = app, title = app?.label ?: packageName, subtitle = usedTodayText(usedTodayMs))
+        SheetHeader(icon = app, title = label, subtitle = usedTodayText(usedTodayMs))
         SwitchRow(
             title = "Reminders for this app",
             checked = enabled,
@@ -147,6 +175,14 @@ fun AppSettingsSheet(
                     defaultMinutes = settings.defaultThresholdMinutes,
                     enabled = enabled,
                 )
+                MessageRow(
+                    minutes = settings.thresholdMinutesFor(packageName),
+                    appLabel = label,
+                    kind = ReminderKind.Continuous,
+                    message = settings.continuousMessages[packageName],
+                    enabled = enabled,
+                    onClick = { editingMessage = ReminderKind.Continuous },
+                )
             } else {
                 SheetHint("Off for this app")
             }
@@ -167,6 +203,14 @@ fun AppSettingsSheet(
                     defaultMinutes = settings.defaultDailyLimitMinutes,
                     enabled = enabled,
                     presets = DAILY_LIMIT_PRESETS,
+                )
+                MessageRow(
+                    minutes = settings.dailyLimitMinutesFor(packageName),
+                    appLabel = label,
+                    kind = ReminderKind.Daily,
+                    message = settings.dailyMessages[packageName],
+                    enabled = enabled,
+                    onClick = { editingMessage = ReminderKind.Daily },
                 )
             } else {
                 SheetHint("Off for this app")

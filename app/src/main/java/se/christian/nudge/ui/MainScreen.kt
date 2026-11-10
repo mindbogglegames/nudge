@@ -403,4 +403,4 @@ fun SheetHeader(icon: AppInfo?, title: String, subtitle: String? = null) {
     }
 }
 
-private const val DISABLED_ALPHA = 0.38f
+internal const val DISABLED_ALPHA = 0.38f
