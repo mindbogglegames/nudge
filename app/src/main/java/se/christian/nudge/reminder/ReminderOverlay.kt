@@ -16,6 +16,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import se.christian.nudge.history.ReminderEnd
 import se.christian.nudge.ui.theme.NudgeTheme
 
 /**
@@ -35,15 +36,31 @@ class ReminderOverlay<T>(
     )
     private val windowManager = windowContext.getSystemService(WindowManager::class.java)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var current: ComposeView? = null
+    private var current: ShownPill? = null
 
-    /** Shows [content], replacing any pill on screen. Returns false if the overlay can't be shown. */
-    fun show(content: PillContent): Boolean {
+    /** A pill on screen and who to tell how it ended (once). */
+    private class ShownPill(val view: ComposeView, private val onEnd: (ReminderEnd) -> Unit) {
+        private var ended = false
+
+        fun end(reason: ReminderEnd) {
+            if (!ended) {
+                ended = true
+                onEnd(reason)
+            }
+        }
+    }
+
+    /**
+     * Shows [content], replacing any pill on screen. Returns false if the overlay can't be shown.
+     * [onEnd] is told how the pill ended: by the pill itself, or [dismissNow].
+     */
+    fun show(content: PillContent, onEnd: (ReminderEnd) -> Unit = {}): Boolean {
         if (!Settings.canDrawOverlays(windowContext)) return false
-        dismissNow()
+        dismissNow(ReminderEnd.REPLACED)
 
         val params = layoutParams()
         val view = ComposeView(windowContext)
+        val shown = ShownPill(view, onEnd)
         view.setViewTreeLifecycleOwner(owner)
         view.setViewTreeSavedStateRegistryOwner(owner)
         view.setContent {
@@ -55,14 +72,17 @@ class ReminderOverlay<T>(
                     onOpenSettings = { actions.openSettings(content.packageName, content.appLabel) },
                     onExpandedChange = { expanded -> resize(view, params, expanded) },
                     // Remove after the current frame, not from inside the composition being disposed.
-                    onDismissed = { mainHandler.post { remove(view) } },
+                    onDismissed = { reason ->
+                        shown.end(reason)
+                        mainHandler.post { remove(shown) }
+                    },
                 )
             }
         }
 
         return try {
             if (!view.isAttachedToWindow) windowManager.addView(view, params)
-            current = view
+            current = shown
             true
         } catch (e: RuntimeException) {
             Log.w(TAG, "Couldn't add the reminder overlay", e)
@@ -71,12 +91,16 @@ class ReminderOverlay<T>(
     }
 
     /** Removes the pill without animating, e.g. when the screen turns off. */
-    fun dismissNow() {
-        current?.let(::remove)
+    fun dismissNow(reason: ReminderEnd = ReminderEnd.SCREEN_OFF) {
+        current?.let {
+            it.end(reason)
+            remove(it)
+        }
     }
 
-    private fun remove(view: ComposeView) {
-        if (current === view) current = null
+    private fun remove(shown: ShownPill) {
+        if (current === shown) current = null
+        val view = shown.view
         // parent is set as soon as addView returns; isAttachedToWindow only after the first traversal.
         if (!view.isAttachedToWindow && view.parent == null) return
         try {

@@ -4,11 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -32,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,16 +50,22 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import se.christian.nudge.PermissionState
 import se.christian.nudge.R
+import se.christian.nudge.history.DeliveryOutcome
+import se.christian.nudge.history.DeliveryReason
+import se.christian.nudge.history.HistoryEntry
 import se.christian.nudge.apps.AppInfo
 import se.christian.nudge.session.formatMinutes
 import se.christian.nudge.settings.Settings
 
-private enum class GlobalSheet { Threshold, Advanced }
+private enum class GlobalSheet { Threshold, Daily, Advanced }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,8 +75,10 @@ fun MainScreen(
     apps: List<AppInfo>?,
     viewModel: MainViewModel,
     onRequestPermission: (PermissionKind) -> Unit,
-    onShowTestReminder: suspend () -> Boolean,
+    onShowTestReminder: suspend () -> DeliveryOutcome?,
     onOpenApp: (String) -> Unit,
+    history: List<HistoryEntry>,
+    onOpenHistory: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val snackbar = remember { SnackbarHostState() }
@@ -111,11 +122,33 @@ fun MainScreen(
                 )
             }
             item { Spacer(Modifier.size(8.dp)) }
+            item { SectionTitle("Remind me") }
             item {
-                SettingRow(
-                    title = "Remind me after",
-                    summary = formatMinutes(settings.defaultThresholdMinutes.toLong()) + " of continuous use",
+                SwitchSettingRow(
+                    title = "Continuous use",
+                    summary = if (settings.continuousRemindersEnabled) {
+                        "After ${formatMinutes(settings.defaultThresholdMinutes.toLong())} of continuous use"
+                    } else {
+                        "Off"
+                    },
+                    checked = settings.continuousRemindersEnabled,
+                    onCheckedChange = viewModel::setContinuousEnabled,
                     onClick = { openSheet = GlobalSheet.Threshold },
+                    enabled = listEnabled,
+                )
+            }
+            item {
+                SwitchSettingRow(
+                    title = "Daily total",
+                    summary = if (settings.dailyRemindersEnabled) {
+                        "After ${formatMinutes(settings.defaultDailyLimitMinutes.toLong())} of use each day"
+                    } else {
+                        "Off"
+                    },
+                    checked = settings.dailyRemindersEnabled,
+                    onCheckedChange = viewModel::setDailyEnabled,
+                    onClick = { openSheet = GlobalSheet.Daily },
+                    enabled = listEnabled,
                 )
             }
             item {
@@ -123,17 +156,15 @@ fun MainScreen(
                     title = "Advanced",
                     summary = advancedSummary(settings),
                     onClick = { openSheet = GlobalSheet.Advanced },
+                    enabled = listEnabled,
                 )
             }
+            item { HistorySettingRow(history, onOpenHistory) }
             item {
                 FilledTonalButton(
                     onClick = {
                         scope.launch {
-                            if (!onShowTestReminder()) {
-                                snackbar.showSnackbar(
-                                    "Display over other apps is off, so the reminder was sent as a notification",
-                                )
-                            }
+                            testReminderMessage(onShowTestReminder())?.let { snackbar.showSnackbar(it) }
                         }
                     },
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
@@ -141,14 +172,7 @@ fun MainScreen(
                     Text("Show test reminder")
                 }
             }
-            item {
-                Text(
-                    text = "Apps",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp),
-                )
-            }
+            item { SectionTitle("Apps", modifier = Modifier.padding(top = 16.dp)) }
             item {
                 Text(
                     text = "Reminders are off for every app until you turn them on here.",
@@ -198,6 +222,11 @@ fun MainScreen(
             onChange = viewModel::setDefaultThreshold,
             onDismiss = { openSheet = null },
         )
+        GlobalSheet.Daily -> DailyTotalSheet(
+            settings = settings,
+            viewModel = viewModel,
+            onDismiss = { openSheet = null },
+        )
         GlobalSheet.Advanced -> AdvancedSheet(
             settings = settings,
             viewModel = viewModel,
@@ -228,14 +257,91 @@ private fun MainSwitchBar(checked: Boolean, onCheckedChange: (Boolean) -> Unit, 
 }
 
 @Composable
-private fun SettingRow(title: String, summary: String, onClick: () -> Unit) {
+private fun SettingRow(title: String, summary: String, onClick: () -> Unit, enabled: Boolean = true) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(summary) },
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp),
     )
+}
+
+/** "Reminder history" with "3 reminders today · 1 not shown"; never dimmed, the history is useful while off. */
+@Composable
+private fun HistorySettingRow(history: List<HistoryEntry>, onClick: () -> Unit) {
+    val (total, notShown) = historySummary(history)
+    val error = MaterialTheme.colorScheme.error
+    val summary = buildAnnotatedString {
+        append(total)
+        if (notShown != null) {
+            append(" · ")
+            withStyle(SpanStyle(color = error)) { append(notShown) }
+        }
+    }
+    ListItem(
+        headlineContent = { Text("Reminder history") },
+        supportingContent = { Text(summary) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null) },
+        modifier = Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp),
+    )
+}
+
+/** Snackbar text when the test reminder wasn't shown as the pill. */
+private fun testReminderMessage(outcome: DeliveryOutcome?): String? = when (outcome?.reason) {
+    null -> null
+    DeliveryReason.OVERLAY_PERMISSION_OFF -> "Display over other apps is off, so the reminder was sent as a notification"
+    DeliveryReason.PILL_FAILED -> "The pill couldn't be shown, so the reminder was sent as a notification"
+    DeliveryReason.PILL_BLOCKED_NOTIFICATIONS_OFF ->
+        "The reminder couldn't be shown: display over other apps and notifications are both off"
+}
+
+@Composable
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
+    )
+}
+
+/** Android Settings "primary switch" row: tapping the text opens details, the switch toggles. */
+@Composable
+private fun SwitchSettingRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(summary) },
+            modifier = Modifier
+                .weight(1f)
+                .clickable(enabled = enabled, onClick = onClick),
+        )
+        VerticalDivider(Modifier.padding(vertical = 16.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+        )
+    }
 }
 
 @Composable
@@ -273,11 +379,19 @@ private fun AppRow(app: AppInfo, settings: Settings, enabled: Boolean, onToggle:
     )
 }
 
-/** "After 15 min", "After 30 min · custom" or "Off". */
+/** "15 min continuous · 1 h daily", "30 min continuous · custom", "1 h daily" or "Off". */
 fun appSubtitle(packageName: String, settings: Settings): String {
     if (!settings.isAppEnabled(packageName)) return "Off"
-    val after = "After ${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())}"
-    return if (packageName in settings.thresholdOverrides) "$after · custom" else after
+    val continuous = settings.isContinuousOn(packageName)
+    val daily = settings.isDailyOn(packageName)
+    val parts = buildList {
+        if (continuous) add("${formatMinutes(settings.thresholdMinutesFor(packageName).toLong())} continuous")
+        if (daily) add("${formatMinutes(settings.dailyLimitMinutesFor(packageName).toLong())} daily")
+        val custom = (continuous && packageName in settings.thresholdOverrides) ||
+            (daily && packageName in settings.dailyLimitOverrides)
+        if (custom) add("custom")
+    }
+    return if (parts.isEmpty()) "Off" else parts.joinToString(" · ")
 }
 
 private fun advancedSummary(settings: Settings): String {
@@ -309,15 +423,20 @@ fun SwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Uni
 }
 
 @Composable
-fun SheetHeader(icon: AppInfo?, title: String) {
+fun SheetHeader(icon: AppInfo?, title: String, subtitle: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
         if (icon != null) {
             val image = remember(icon.icon) { icon.icon.asImageBitmap() }
             Image(image, contentDescription = null, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(16.dp))
         }
-        Column { Text(title, style = MaterialTheme.typography.headlineSmall) }
+        Column {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
-private const val DISABLED_ALPHA = 0.38f
+internal const val DISABLED_ALPHA = 0.38f

@@ -16,18 +16,23 @@ import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import se.christian.nudge.NudgeApp
 import se.christian.nudge.Permissions
+import se.christian.nudge.history.ReminderEnd
+import se.christian.nudge.history.StopReason
 import se.christian.nudge.reminder.PillContent
 import se.christian.nudge.reminder.ReminderEvents
 import se.christian.nudge.reminder.ReminderNotifier
 import se.christian.nudge.reminder.ReminderOverlay
 import se.christian.nudge.session.Reminder
 import se.christian.nudge.session.SessionTracker
+import se.christian.nudge.session.messageFor
 import se.christian.nudge.session.reminderText
 
 /**
@@ -44,13 +49,17 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
     private lateinit var overlay: ReminderOverlay<UsageMonitorService>
     private var pollJob: Job? = null
 
+    /** Why this run is ending, logged in onDestroy. */
+    private var stopReason: StopReason? = null
+
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     stopPolling()
                     tracker.onForeground(null)
-                    overlay.dismissNow()
+                    overlay.dismissNow(ReminderEnd.SCREEN_OFF)
+                    app.reminderLog.heartbeat(force = true)
                 }
                 Intent.ACTION_USER_PRESENT -> startPolling()
                 Intent.ACTION_SCREEN_ON -> if (!isKeyguardLocked()) startPolling()
@@ -62,11 +71,20 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
         savedStateController.performAttach()
         savedStateController.performRestore(null)
         super.onCreate()
-        if (!enterForeground()) return
+        if (!enterForeground()) {
+            app.reminderLog.serviceStarted(failed = true)
+            return
+        }
+        app.reminderLog.serviceStarted()
 
         detector = ForegroundAppDetector(this)
         overlay = ReminderOverlay(this, this, app.reminderActions)
         tracker.ignoredPackages = app.appInfo.ignoredPackages()
+        lifecycleScope.launch {
+            // Count time spent in apps today before the service started.
+            val totals = withContext(Dispatchers.IO) { DailyUsageReader(this@UsageMonitorService).todayTotals() }
+            tracker.seedDailyTotals(totals)
+        }
 
         ContextCompat.registerReceiver(
             this,
@@ -82,7 +100,10 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
         lifecycleScope.launch {
             app.settingsRepository.settings.collect { settings ->
                 tracker.settings = settings
-                if (!settings.remindersEnabled) stopSelf()
+                if (!settings.remindersEnabled) {
+                    stopReason = StopReason.TURNED_OFF
+                    stopSelf()
+                }
             }
         }
         lifecycleScope.launch {
@@ -103,8 +124,11 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
     override fun onDestroy() {
         if (::overlay.isInitialized) {
             unregisterReceiver(screenReceiver)
-            overlay.dismissNow()
+            overlay.dismissNow(ReminderEnd.SCREEN_OFF)
+            val reason = stopReason ?: if (userStopRequested) StopReason.TURNED_OFF else StopReason.STOPPED
+            app.reminderLog.serviceStopped(reason)
         }
+        userStopRequested = false
         super.onDestroy()
     }
 
@@ -120,6 +144,7 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
     } catch (e: IllegalStateException) {
         // ForegroundServiceStartNotAllowedException, e.g. a sticky restart while the app is restricted.
         Log.w(TAG, "Not allowed to start in the foreground", e)
+        stopReason = StopReason.START_NOT_ALLOWED
         stopSelf()
         false
     }
@@ -145,10 +170,12 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
         if (!Permissions.hasUsageAccess(this)) {
             Log.i(TAG, "Usage access revoked; stopping")
             app.notifier.showUsageAccessRevoked()
+            stopReason = StopReason.USAGE_ACCESS_REVOKED
             stopPolling()
             stopSelf()
             return
         }
+        app.reminderLog.heartbeat()
         val reminder = tracker.onForeground(detector.currentForegroundPackage()) ?: return
         showReminder(reminder)
     }
@@ -161,12 +188,16 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
                 packageName = reminder.packageName,
                 appLabel = label,
                 icon = info?.icon,
-                text = reminderText(reminder.sessionMinutes, label),
+                text = reminderText(
+                    reminder.minutes,
+                    label,
+                    reminder.kind,
+                    tracker.settings.messageFor(reminder.packageName, reminder.kind),
+                ),
                 snoozeMinutes = tracker.settings.snoozeMinutes,
             )
-            val shownAsPill = overlay.show(content)
-            if (!shownAsPill) app.notifier.showReminder(content)
-            Log.i(TAG, "Reminder for ${reminder.packageName} at ${reminder.sessionMinutes} min, pill=$shownAsPill")
+            val outcome = app.reminderPresenter.present(overlay, content, reminder.kind, test = false)
+            Log.i(TAG, "${reminder.kind} reminder for ${reminder.packageName} at ${reminder.minutes} min: ${outcome.delivery}")
         }
     }
 
@@ -181,7 +212,12 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
             context.startForegroundService(Intent(context, UsageMonitorService::class.java))
         }
 
+        /** Set when the activity stops the service because "Use reminders" was turned off. */
+        @Volatile
+        private var userStopRequested = false
+
         fun stop(context: Context) {
+            userStopRequested = true
             context.stopService(Intent(context, UsageMonitorService::class.java))
         }
     }

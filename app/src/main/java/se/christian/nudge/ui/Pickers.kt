@@ -28,9 +28,10 @@ import se.christian.nudge.session.formatMinutes
 import se.christian.nudge.settings.SettingsRepository
 
 val THRESHOLD_PRESETS = listOf(5, 10, 15, 20, 30, 45, 60)
+val DAILY_LIMIT_PRESETS = listOf(15, 30, 45, 60, 90, 120, 180)
 
 /**
- * Threshold chips 5–60 min plus "Custom" (number input). When [defaultMinutes] is given, a "Use default" chip is
+ * Threshold chips ([presets], 5–60 min by default) plus "Custom" (number input). When [defaultMinutes] is given, a "Use default" chip is
  * shown and `null` means "follow the default".
  */
 @Composable
@@ -40,13 +41,14 @@ fun ThresholdPicker(
     modifier: Modifier = Modifier,
     defaultMinutes: Int? = null,
     enabled: Boolean = true,
+    presets: List<Int> = THRESHOLD_PRESETS,
 ) {
     var editingCustom by rememberSaveable { mutableStateOf(false) }
-    val isCustom = value != null && value !in THRESHOLD_PRESETS
+    val isCustom = value != null && value !in presets
 
     Column(modifier) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            THRESHOLD_PRESETS.forEach { minutes ->
+            presets.forEach { minutes ->
                 FilterChip(
                     selected = value == minutes && !editingCustom,
                     onClick = {
