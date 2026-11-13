@@ -45,6 +45,7 @@ Nudge rebuilds that experience and puts you in control:
 | **Repeat reminders** | Reminds again every N minutes while you keep going (by default, the same as the reminder time). |
 | **Snooze** | Silences one app for a while, then reminds you right away if you're still at it. |
 | **Notification fallback** | If the overlay isn't allowed, the same reminder arrives as a heads-up notification with the same actions. |
+| **Reminder history** | Today's reminders and how each was shown (pill, notification or not at all) and how it ended, plus when monitoring stopped and for how long, e.g. when the phone closed Nudge in the background. |
 | **Guided setup** | Onboarding explains each permission. The main screen flags anything that's missing. |
 | **Survives reboots** | Monitoring restarts after a reboot or an app update. |
 
@@ -142,6 +143,8 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 - **Daily totals are approximate** at the edges: time is split at midnight to the nearest poll, and the seeded total relies on Android's usage events, which some phones trim or delay.
 - **Daily reminders after a restart:** reminder points already passed in the seeded total count as shown. If you turn on Nudge (or restart the phone) after passing a daily limit set to "Only once", there's no reminder that day.
 - **5-second polling** means reminders and app switches can be detected up to 5 s late.
+- **"Pill" in the history means the pill was added to the screen.** An app that hides overlays still counts as shown, since Android doesn't tell Nudge.
+- **Monitoring gaps are approximate:** the stop time is the last heartbeat (up to a minute early), and if the phone closed Nudge while the screen was off, the gap includes screen-off time.
 
 ## Documentation
 
@@ -180,6 +183,9 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 - **On API 31–33** the service is started without a type, since `specialUse` only exists from API 34.
 - **No backup:** `allowBackup="false"` and data extraction rules that exclude everything, so settings never leave the phone.
 - **Per-app threshold and daily limit overrides** (and custom messages) are stored as JSON strings (kotlinx.serialization) in DataStore, because Preferences DataStore has no map type.
+- **Reminder history is a JSON file, not Room or DataStore.** It's a short list rewritten as a whole, read by one screen; a database would be overkill and Room is ruled out. Writes run in order on a single background thread, so a pill ending can't overtake the entry it updates.
+- **History keeps today only** (cleared at midnight, at most 500 entries). The question it answers is "did today's reminders show?"; older days added clutter without helping.
+- **Monitoring gaps come from a heartbeat.** A killed process gets no `onDestroy`, so the service writes `{running, lastAliveMs}` to a separate small file about once a minute while polling (not on every 5 s poll) and on screen off. If the next start finds `running` still true, it logs a stop at the last heartbeat. `getHistoricalProcessExitReasons` names the cause when Android recorded one. Stops after turning reminders off don't get a gap banner, since that's on purpose.
 - **Custom messages are templates with `{time}` and `{app}`** rather than free text, so a message still says how long you've been on the app at each repeat. The editor starts from the built-in text with its placeholders visible; saving the built-in text unchanged stores nothing, so the app keeps following the built-in wording. Messages are per app only; there's no global message, to keep the main screen simple.
 - **UI strings are in Kotlin, not `strings.xml`.** The app is English-only and personal; only the app name is a resource.
 - **Main screen title is "Nudge"** rather than "Screen time reminders", to match the launcher label.

@@ -15,6 +15,7 @@ import se.christian.nudge.NudgeApp
 import se.christian.nudge.PermissionState
 import se.christian.nudge.Permissions
 import se.christian.nudge.apps.AppInfo
+import se.christian.nudge.history.HistoryEntry
 import se.christian.nudge.service.DailyUsageReader
 import se.christian.nudge.settings.Settings
 
@@ -38,6 +39,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Foreground ms today per package, from the system's usage data. */
     val todayUsage: StateFlow<Map<String, Long>> = _todayUsage.asStateFlow()
+
+    /** Today's reminder history, live. */
+    val history: StateFlow<List<HistoryEntry>> = app.reminderLog.entries
+
+    fun clearHistory() = app.reminderLog.clear()
 
     /** Package whose settings sheet is open. */
     private val _sheetPackage = MutableStateFlow<String?>(null)

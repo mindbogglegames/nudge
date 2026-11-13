@@ -50,11 +50,17 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import se.christian.nudge.PermissionState
 import se.christian.nudge.R
+import se.christian.nudge.history.DeliveryOutcome
+import se.christian.nudge.history.DeliveryReason
+import se.christian.nudge.history.HistoryEntry
 import se.christian.nudge.apps.AppInfo
 import se.christian.nudge.session.formatMinutes
 import se.christian.nudge.settings.Settings
@@ -69,8 +75,10 @@ fun MainScreen(
     apps: List<AppInfo>?,
     viewModel: MainViewModel,
     onRequestPermission: (PermissionKind) -> Unit,
-    onShowTestReminder: suspend () -> Boolean,
+    onShowTestReminder: suspend () -> DeliveryOutcome?,
     onOpenApp: (String) -> Unit,
+    history: List<HistoryEntry>,
+    onOpenHistory: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val snackbar = remember { SnackbarHostState() }
@@ -151,15 +159,12 @@ fun MainScreen(
                     enabled = listEnabled,
                 )
             }
+            item { HistorySettingRow(history, onOpenHistory) }
             item {
                 FilledTonalButton(
                     onClick = {
                         scope.launch {
-                            if (!onShowTestReminder()) {
-                                snackbar.showSnackbar(
-                                    "Display over other apps is off, so the reminder was sent as a notification",
-                                )
-                            }
+                            testReminderMessage(onShowTestReminder())?.let { snackbar.showSnackbar(it) }
                         }
                     },
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
@@ -261,6 +266,37 @@ private fun SettingRow(title: String, summary: String, onClick: () -> Unit, enab
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp),
     )
+}
+
+/** "Reminder history" with "3 reminders today · 1 not shown"; never dimmed, the history is useful while off. */
+@Composable
+private fun HistorySettingRow(history: List<HistoryEntry>, onClick: () -> Unit) {
+    val (total, notShown) = historySummary(history)
+    val error = MaterialTheme.colorScheme.error
+    val summary = buildAnnotatedString {
+        append(total)
+        if (notShown != null) {
+            append(" · ")
+            withStyle(SpanStyle(color = error)) { append(notShown) }
+        }
+    }
+    ListItem(
+        headlineContent = { Text("Reminder history") },
+        supportingContent = { Text(summary) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null) },
+        modifier = Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp),
+    )
+}
+
+/** Snackbar text when the test reminder wasn't shown as the pill. */
+private fun testReminderMessage(outcome: DeliveryOutcome?): String? = when (outcome?.reason) {
+    null -> null
+    DeliveryReason.OVERLAY_PERMISSION_OFF -> "Display over other apps is off, so the reminder was sent as a notification"
+    DeliveryReason.PILL_FAILED -> "The pill couldn't be shown, so the reminder was sent as a notification"
+    DeliveryReason.PILL_BLOCKED_NOTIFICATIONS_OFF ->
+        "The reminder couldn't be shown: display over other apps and notifications are both off"
 }
 
 @Composable

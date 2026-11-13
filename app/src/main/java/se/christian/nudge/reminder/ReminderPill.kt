@@ -55,6 +55,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import se.christian.nudge.history.ReminderEnd
 import se.christian.nudge.session.formatMinutes
 import kotlin.math.roundToInt
 
@@ -70,7 +71,7 @@ internal val ExpandedWindowWidth = ExpandedCardWidth + PillMarginHorizontal * 2
 
 /**
  * The reminder pill: slides in, auto-dismisses, swipe up to dismiss, tap to expand into a card with actions.
- * [onDismissed] is called once the exit animation has finished.
+ * [onDismissed] is called once the exit animation has finished, with how the pill ended.
  */
 @Composable
 fun ReminderPill(
@@ -79,7 +80,7 @@ fun ReminderPill(
     onTurnOff: () -> Unit,
     onOpenSettings: () -> Unit,
     onExpandedChange: (Boolean) -> Unit,
-    onDismissed: () -> Unit,
+    onDismissed: (ReminderEnd) -> Unit,
 ) {
     val visibility = remember { MutableTransitionState(false) }
     var expanded by remember { mutableStateOf(false) }
@@ -89,7 +90,11 @@ fun ReminderPill(
     val scope = rememberCoroutineScope()
     val dismissDistancePx = with(LocalDensity.current) { 24.dp.toPx() }
 
-    fun dismiss() {
+    // Not state: only read once the pill is gone. The first reason wins.
+    val endReason = remember { arrayOfNulls<ReminderEnd>(1) }
+
+    fun dismiss(reason: ReminderEnd) {
+        if (endReason[0] == null) endReason[0] = reason
         visibility.targetState = false
     }
 
@@ -97,7 +102,7 @@ fun ReminderPill(
         visibility.targetState = true
         // Also fires when dismissed mid-enter, before the pill was ever fully visible.
         snapshotFlow { !visibility.targetState && !visibility.currentState && visibility.isIdle }.first { it }
-        onDismissed()
+        onDismissed(endReason[0] ?: ReminderEnd.TIMED_OUT)
     }
 
     LaunchedEffect(Unit) {
@@ -113,7 +118,7 @@ fun ReminderPill(
                 else -> AUTO_DISMISS_MS
             },
         )
-        dismiss()
+        dismiss(ReminderEnd.TIMED_OUT)
     }
 
     AnimatedVisibility(
@@ -132,7 +137,7 @@ fun ReminderPill(
                         onDragStart = { interactions++ },
                         onDragEnd = {
                             if (dragOffset.value < -dismissDistancePx) {
-                                dismiss()
+                                dismiss(ReminderEnd.DISMISSED)
                             } else {
                                 scope.launch { dragOffset.animateTo(0f) }
                             }
@@ -156,16 +161,17 @@ fun ReminderPill(
                     content = content,
                     onSnooze = {
                         onSnooze()
-                        dismiss()
+                        dismiss(ReminderEnd.SNOOZED)
                     },
                     onTurnOff = {
                         onTurnOff()
+                        endReason[0] = ReminderEnd.TURNED_OFF
                         expanded = false
                         offMessage = "Reminders off for ${content.appLabel}"
                     },
                     onOpenSettings = {
                         onOpenSettings()
-                        dismiss()
+                        dismiss(ReminderEnd.OPENED_SETTINGS)
                     },
                 )
                 else -> PillRow(

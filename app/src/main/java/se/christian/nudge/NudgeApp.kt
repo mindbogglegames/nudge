@@ -5,8 +5,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import se.christian.nudge.apps.AppInfoRepository
+import se.christian.nudge.history.ReminderLog
 import se.christian.nudge.reminder.ReminderActions
 import se.christian.nudge.reminder.ReminderNotifier
+import se.christian.nudge.reminder.ReminderPresenter
 import se.christian.nudge.settings.SettingsRepository
 
 /** Holds the process-wide singletons (no DI framework by design). */
@@ -18,6 +20,8 @@ class NudgeApp : Application() {
     val appInfo by lazy { AppInfoRepository(this) }
     val notifier by lazy { ReminderNotifier(this) }
     val reminderActions by lazy { ReminderActions(this) }
+    val reminderLog by lazy { ReminderLog(this, appScope) }
+    val reminderPresenter by lazy { ReminderPresenter(this) }
 
     override fun onCreate() {
         super.onCreate()

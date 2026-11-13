@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import se.christian.nudge.NudgeApp
+import se.christian.nudge.history.DeliveryOutcome
+import se.christian.nudge.history.ReminderEnd
 import se.christian.nudge.reminder.OverlayLifecycleOwner
 import se.christian.nudge.reminder.PillContent
 import se.christian.nudge.reminder.ReminderOverlay
@@ -84,7 +86,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        testOverlay?.dismissNow()
+        testOverlay?.dismissNow(ReminderEnd.REPLACED)
         if (testOverlay != null) overlayOwner.destroy()
         super.onDestroy()
     }
@@ -93,9 +95,9 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra(EXTRA_PACKAGE)?.let(viewModel::openAppSheet)
     }
 
-    /** Shows the pill for a sample app. Returns false if it fell back to a notification. */
-    private suspend fun showTestReminder(): Boolean {
-        val settings = viewModel.settings.value ?: return false
+    /** Shows the pill for a sample app, or the notification if it can't, and logs it as a test. */
+    private suspend fun showTestReminder(): DeliveryOutcome? {
+        val settings = viewModel.settings.value ?: return null
         val sample = SAMPLE_PACKAGES.firstNotNullOfOrNull { viewModel.appInfo(it) }
             ?: viewModel.apps.value?.firstOrNull()
             ?: viewModel.appInfo(packageName)
@@ -118,9 +120,7 @@ class MainActivity : ComponentActivity() {
             snoozeMinutes = settings.snoozeMinutes,
         )
         val overlay = testOverlay ?: ReminderOverlay(this, overlayOwner, app.reminderActions).also { testOverlay = it }
-        if (overlay.show(content)) return true
-        app.notifier.showReminder(content)
-        return false
+        return app.reminderPresenter.present(overlay, content, kind, test = true)
     }
 
     companion object {
