@@ -16,6 +16,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import se.christian.nudge.history.ReminderEnd
+import se.christian.nudge.session.PillLevel
 import se.christian.nudge.ui.theme.NudgeTheme
 
 /**
@@ -35,15 +37,32 @@ class ReminderOverlay<T>(
     )
     private val windowManager = windowContext.getSystemService(WindowManager::class.java)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var current: ComposeView? = null
+    private var current: ShownPill? = null
 
-    /** Shows [content], replacing any pill on screen. Returns false if the overlay can't be shown. */
-    fun show(content: PillContent): Boolean {
+    /** A pill on screen and who to tell how it ended (once). */
+    private class ShownPill(val view: ComposeView, val content: PillContent, private val onEnd: (ReminderEnd) -> Unit) {
+        private var ended = false
+
+        fun end(reason: ReminderEnd) {
+            if (!ended) {
+                ended = true
+                onEnd(reason)
+            }
+        }
+    }
+
+    /**
+     * Shows [content], replacing any pill on screen. Returns false if the overlay can't be shown.
+     * [onEnd] is told how the pill ended: by the pill itself, or [dismissNow].
+     */
+    fun show(content: PillContent, onEnd: (ReminderEnd) -> Unit = {}): Boolean {
         if (!Settings.canDrawOverlays(windowContext)) return false
-        dismissNow()
+        dismissNow(ReminderEnd.REPLACED)
 
-        val params = layoutParams()
+        val big = content.level != PillLevel.SUBTLE
+        val params = layoutParams(big)
         val view = ComposeView(windowContext)
+        val shown = ShownPill(view, content, onEnd)
         view.setViewTreeLifecycleOwner(owner)
         view.setViewTreeSavedStateRegistryOwner(owner)
         view.setContent {
@@ -53,16 +72,20 @@ class ReminderOverlay<T>(
                     onSnooze = { actions.snooze(content.packageName) },
                     onTurnOff = { actions.turnOff(content.packageName) },
                     onOpenSettings = { actions.openSettings(content.packageName, content.appLabel) },
-                    onExpandedChange = { expanded -> resize(view, params, expanded) },
+                    // A big pill's window is already wide enough for the expanded card.
+                    onExpandedChange = { expanded -> if (!big) resize(view, params, expanded) },
                     // Remove after the current frame, not from inside the composition being disposed.
-                    onDismissed = { mainHandler.post { remove(view) } },
+                    onDismissed = { reason ->
+                        shown.end(reason)
+                        mainHandler.post { remove(shown) }
+                    },
                 )
             }
         }
 
         return try {
             if (!view.isAttachedToWindow) windowManager.addView(view, params)
-            current = view
+            current = shown
             true
         } catch (e: RuntimeException) {
             Log.w(TAG, "Couldn't add the reminder overlay", e)
@@ -70,13 +93,28 @@ class ReminderOverlay<T>(
         }
     }
 
-    /** Removes the pill without animating, e.g. when the screen turns off. */
-    fun dismissNow() {
-        current?.let(::remove)
+    /**
+     * Closes a persistent pill once its app is no longer in the foreground ([foregroundPackage]), so it can't be
+     * left behind over another app. Other pills close on their own timer.
+     */
+    fun closeIfAppLeft(foregroundPackage: String?) {
+        val shown = current ?: return
+        if (shown.content.level == PillLevel.PERSISTENT && shown.content.packageName != foregroundPackage) {
+            dismissNow(ReminderEnd.LEFT_APP)
+        }
     }
 
-    private fun remove(view: ComposeView) {
-        if (current === view) current = null
+    /** Removes the pill without animating, e.g. when the screen turns off. */
+    fun dismissNow(reason: ReminderEnd = ReminderEnd.SCREEN_OFF) {
+        current?.let {
+            it.end(reason)
+            remove(it)
+        }
+    }
+
+    private fun remove(shown: ShownPill) {
+        if (current === shown) current = null
+        val view = shown.view
         // parent is set as soon as addView returns; isAttachedToWindow only after the first traversal.
         if (!view.isAttachedToWindow && view.parent == null) return
         try {
@@ -103,8 +141,12 @@ class ReminderOverlay<T>(
         }
     }
 
-    private fun layoutParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
+    /**
+     * A subtle pill's window wraps it. A big pill's window spans the screen width minus [BigPillWindowInset] on each
+     * side, so the pill can fill it while touches beside it still reach the app underneath.
+     */
+    private fun layoutParams(big: Boolean) = WindowManager.LayoutParams(
+        if (big) bigWindowWidth() else WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -115,6 +157,12 @@ class ReminderOverlay<T>(
         fitInsetsTypes = 0
         y = windowManager.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars()).top
         title = "Nudge reminder"
+    }
+
+    private fun bigWindowWidth(): Int {
+        val screenWidth = windowManager.currentWindowMetrics.bounds.width()
+        val inset = (BigPillWindowInset.value * windowContext.resources.displayMetrics.density).toInt()
+        return screenWidth - 2 * inset
     }
 
     private companion object {

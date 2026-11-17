@@ -3,6 +3,7 @@ package se.christian.nudge.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,10 +16,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import se.christian.nudge.NudgeApp
+import se.christian.nudge.history.DeliveryOutcome
+import se.christian.nudge.history.ReminderEnd
 import se.christian.nudge.reminder.OverlayLifecycleOwner
 import se.christian.nudge.reminder.PillContent
 import se.christian.nudge.reminder.ReminderOverlay
 import se.christian.nudge.service.UsageMonitorService
+import se.christian.nudge.session.ReminderKind
+import se.christian.nudge.session.TestReminderCycle
+import se.christian.nudge.session.messageFor
+import se.christian.nudge.session.pillLevel
 import se.christian.nudge.session.reminderText
 import se.christian.nudge.ui.theme.NudgeTheme
 
@@ -36,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     // The activity's own lifecycle stops when the user leaves, which would freeze the test pill on screen.
     private val overlayOwner by lazy { OverlayLifecycleOwner() }
+    private val testCycle = TestReminderCycle(clock = { SystemClock.elapsedRealtime() })
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -81,8 +89,14 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onStop() {
+        // A persistent test pill would otherwise stay over whatever app comes next.
+        testOverlay?.dismissNow(ReminderEnd.LEFT_APP)
+        super.onStop()
+    }
+
     override fun onDestroy() {
-        testOverlay?.dismissNow()
+        testOverlay?.dismissNow(ReminderEnd.REPLACED)
         if (testOverlay != null) overlayOwner.destroy()
         super.onDestroy()
     }
@@ -91,24 +105,36 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra(EXTRA_PACKAGE)?.let(viewModel::openAppSheet)
     }
 
-    /** Shows the pill for a sample app. Returns false if it fell back to a notification. */
-    private suspend fun showTestReminder(): Boolean {
-        val settings = viewModel.settings.value ?: return false
+    /**
+     * Shows the pill for a sample app, or the notification if it can't, and logs it as a test. Taps in a row step
+     * through repeats 1, 2 and 3, previewing each level of the reminder style.
+     */
+    private suspend fun showTestReminder(): DeliveryOutcome? {
+        val settings = viewModel.settings.value ?: return null
         val sample = SAMPLE_PACKAGES.firstNotNullOfOrNull { viewModel.appInfo(it) }
             ?: viewModel.apps.value?.firstOrNull()
             ?: viewModel.appInfo(packageName)
         val label = sample?.label ?: "Nudge"
+        val samplePackage = sample?.packageName ?: packageName
+        val kind = if (settings.dailyRemindersEnabled && !settings.continuousRemindersEnabled) {
+            ReminderKind.Daily
+        } else {
+            ReminderKind.Continuous
+        }
+        val minutes = when (kind) {
+            ReminderKind.Continuous -> settings.thresholdMinutesFor(samplePackage)
+            ReminderKind.Daily -> settings.dailyLimitMinutesFor(samplePackage)
+        }
         val content = PillContent(
-            packageName = sample?.packageName ?: packageName,
+            packageName = samplePackage,
             appLabel = label,
             icon = sample?.icon,
-            text = reminderText(settings.defaultThresholdMinutes.toLong(), label),
+            text = reminderText(minutes.toLong(), label, kind, settings.messageFor(samplePackage, kind)),
             snoozeMinutes = settings.snoozeMinutes,
+            level = pillLevel(settings.reminderStyle, testCycle.next()),
         )
         val overlay = testOverlay ?: ReminderOverlay(this, overlayOwner, app.reminderActions).also { testOverlay = it }
-        if (overlay.show(content)) return true
-        app.notifier.showReminder(content)
-        return false
+        return app.reminderPresenter.present(overlay, content, kind, test = true)
     }
 
     companion object {

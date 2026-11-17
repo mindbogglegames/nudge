@@ -16,8 +16,11 @@ class SessionTrackerTest {
     private val enabled = Settings(remindersEnabled = true, enabledPackages = setOf(YOUTUBE, CHROME))
     private val tracker = SessionTracker(clock, enabled, ignoredPackages = setOf(LAUNCHER))
 
+    /** Like [poll], ignoring [Reminder.repeatIndex], which has its own tests. */
+    private fun use(pkg: String?, minutes: Double): List<Reminder> = poll(pkg, minutes).map { it.copy(repeatIndex = 1) }
+
     /** Polls every 5 s like the service, with [pkg] in the foreground for [minutes]. */
-    private fun use(pkg: String?, minutes: Double): List<Reminder> {
+    private fun poll(pkg: String?, minutes: Double): List<Reminder> {
         val reminders = mutableListOf<Reminder>()
         val end = clock.now + (minutes * 60_000).toLong()
         tracker.onForeground(pkg)?.let(reminders::add)
@@ -40,14 +43,14 @@ class SessionTrackerTest {
     @Test
     fun `repeats every threshold by default`() {
         val reminders = use(YOUTUBE, 46.0)
-        assertEquals(listOf(15L, 30L, 45L), reminders.map { it.sessionMinutes })
+        assertEquals(listOf(15L, 30L, 45L), reminders.map { it.minutes })
     }
 
     @Test
     fun `custom repeat interval`() {
         tracker.settings = enabled.copy(repeatIntervalMinutes = 5)
         val reminders = use(YOUTUBE, 26.0)
-        assertEquals(listOf(15L, 20L, 25L), reminders.map { it.sessionMinutes })
+        assertEquals(listOf(15L, 20L, 25L), reminders.map { it.minutes })
     }
 
     @Test
@@ -108,7 +111,7 @@ class SessionTrackerTest {
         assertTrue(use(YOUTUBE, 9.9).isEmpty()) // 20 min reminder suppressed
         assertEquals(listOf(Reminder(YOUTUBE, 25)), use(YOUTUBE, 0.2))
         // The repeat interval continues from the snooze end: next at 30.
-        assertEquals(listOf(30L), use(YOUTUBE, 5.0).map { it.sessionMinutes })
+        assertEquals(listOf(30L), use(YOUTUBE, 5.0).map { it.minutes })
     }
 
     @Test
@@ -128,8 +131,8 @@ class SessionTrackerTest {
     @Test
     fun `per-app threshold override`() {
         tracker.settings = enabled.copy(thresholdOverrides = mapOf(YOUTUBE to 5))
-        assertEquals(listOf(5L, 10L, 15L), use(YOUTUBE, 16.0).map { it.sessionMinutes })
-        assertEquals(listOf(15L), use(CHROME, 16.0).map { it.sessionMinutes })
+        assertEquals(listOf(5L, 10L, 15L), use(YOUTUBE, 16.0).map { it.minutes })
+        assertEquals(listOf(15L), use(CHROME, 16.0).map { it.minutes })
     }
 
     @Test
@@ -179,6 +182,33 @@ class SessionTrackerTest {
         tracker.ignoredPackages = setOf(LAUNCHER, YOUTUBE)
         assertTrue(use(YOUTUBE, 30.0).isEmpty())
         assertNull(tracker.activePackage)
+    }
+
+    @Test
+    fun `repeat index counts reminders in a session`() {
+        assertEquals(listOf(1, 2, 3), poll(YOUTUBE, 46.0).map { it.repeatIndex })
+    }
+
+    @Test
+    fun `repeat index continues within the grace period`() {
+        poll(YOUTUBE, 16.0) // #1 at 15 min
+        poll(CHROME, 1.0)
+        assertEquals(listOf(2), poll(YOUTUBE, 15.0).map { it.repeatIndex })
+    }
+
+    @Test
+    fun `repeat index resets when the session ends`() {
+        poll(YOUTUBE, 31.0) // #1 and #2
+        away(3.0) // beyond the 2 min grace period
+        assertEquals(listOf(1), poll(YOUTUBE, 16.0).map { it.repeatIndex })
+    }
+
+    @Test
+    fun `reminder after a snooze counts as the next repeat`() {
+        poll(YOUTUBE, 15.0) // #1
+        tracker.snooze(YOUTUBE)
+        assertEquals(listOf(2), poll(YOUTUBE, 11.0).map { it.repeatIndex }) // when the snooze ends at 25 min
+        assertEquals(listOf(3), poll(YOUTUBE, 15.0).map { it.repeatIndex }) // 15 min after that
     }
 
     @Test

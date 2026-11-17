@@ -20,8 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -34,14 +36,24 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.christian.nudge.PermissionState
 import se.christian.nudge.R
 import se.christian.nudge.apps.AppInfo
+import se.christian.nudge.history.DeliveryOutcome
+import se.christian.nudge.history.HistoryRules
+import java.time.ZoneId
 
 @Composable
-fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolean) {
+fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> DeliveryOutcome?) {
     val onboardingCompleted by viewModel.onboardingCompleted.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val sheetPackage by viewModel.sheetPackage.collectAsStateWithLifecycle()
+    val todayUsage by viewModel.todayUsage.collectAsStateWithLifecycle()
+    val history by viewModel.history.collectAsStateWithLifecycle()
+    // Entries are pruned when written; this also drops yesterday's if the screen stays open past midnight.
+    val todayHistory = HistoryRules.pruneToToday(history, HistoryRules.startOfDay(System.currentTimeMillis(), ZoneId.systemDefault()))
+    var showHistory by rememberSaveable { mutableStateOf(false) }
+    // A notification or the pill opening an app's settings sheet goes back to the main screen.
+    LaunchedEffect(sheetPackage) { if (sheetPackage != null) showHistory = false }
     val requestPermission = rememberPermissionRequester()
     val currentSettings = settings
 
@@ -57,6 +69,12 @@ fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolea
             onRequestPermission = requestPermission,
             onFinish = viewModel::completeOnboarding,
         )
+        showHistory -> HistoryScreen(
+            entries = todayHistory,
+            loadApp = viewModel::appInfo,
+            onBack = { showHistory = false },
+            onClear = viewModel::clearHistory,
+        )
         else -> {
             MainScreen(
                 settings = currentSettings,
@@ -66,6 +84,8 @@ fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolea
                 onRequestPermission = requestPermission,
                 onShowTestReminder = onShowTestReminder,
                 onOpenApp = viewModel::openAppSheet,
+                history = todayHistory,
+                onOpenHistory = { showHistory = true },
             )
             sheetPackage?.let { packageName ->
                 val app by produceState<AppInfo?>(null, packageName, apps) { value = viewModel.appInfo(packageName) }
@@ -73,6 +93,7 @@ fun NudgeRoot(viewModel: MainViewModel, onShowTestReminder: suspend () -> Boolea
                     app = app,
                     packageName = packageName,
                     settings = currentSettings,
+                    usedTodayMs = todayUsage[packageName] ?: 0L,
                     viewModel = viewModel,
                     onDismiss = { viewModel.openAppSheet(null) },
                 )

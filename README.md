@@ -4,7 +4,7 @@
 
 **Gentle screen time reminders for Android that you set up yourself.**
 
-After you've used an app for a while, a small pill slides in at the top of the screen: *"15 min on YouTube"*.<br>
+After you've used an app for a while, or for long enough today, a small pill slides in at the top of the screen: *"15 min on YouTube"*.<br>
 It never blocks anything. It just lets you know.
 
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white)
@@ -29,6 +29,8 @@ Nudge rebuilds that experience and puts you in control:
 
 - **You choose the apps.** Reminders are opt-in per app; everything starts off.
 - **You choose the timing.** A default reminder time (5 min to 1 h, or any custom value), per-app overrides, and how often it repeats.
+- **You choose the words.** Each app can have its own reminder message for continuous use and daily total, like "{time} on {app}, time for a break?".
+- **Continuous use, daily total, or both.** Get reminded after 15 min of continuous use, after 1 h of use in a day, or both, and pick per app (say, a daily total only for Instagram). Daily totals reset at midnight.
 - **It's forgiving.** Checking a message and coming back within the grace period (2 min by default) continues the same session. Time away isn't counted.
 - **It's not in your way.** The pill disappears after 6 seconds, swipes away, and never takes focus from the app you're using.
 - **It's private.** No internet permission, no analytics, no backups. Nothing leaves the phone.
@@ -38,10 +40,13 @@ Nudge rebuilds that experience and puts you in control:
 | | |
 |---|---|
 | **Reminder pill** | Slides in below the status bar with the app's icon and session length ("1 h 5 min on Chrome"). Matches your wallpaper colors and dark mode via Material You. |
+| **Stronger reminders** | By default the first reminder is the small pill, the second a big colored pill with a short vibration and a time-left bar, and from the third on it stays until you close it. Or choose always subtle or always prominent. Vibration follows silent mode and Do Not Disturb. |
 | **Quick actions** | Tap the pill to expand it: **Snooze 10 min**, **Turn off for this app**, or jump straight to that app's **Settings**. |
+| **Daily total reminders** | Adds up every visit to an app today ("1 h on YouTube today"), with a per-app daily limit. Counted from Android's usage data, so time before Nudge started counts too. |
 | **Repeat reminders** | Reminds again every N minutes while you keep going (by default, the same as the reminder time). |
 | **Snooze** | Silences one app for a while, then reminds you right away if you're still at it. |
 | **Notification fallback** | If the overlay isn't allowed, the same reminder arrives as a heads-up notification with the same actions. |
+| **Reminder history** | Today's reminders and how each was shown (pill, notification or not at all) and how it ended, plus when monitoring stopped and for how long, e.g. when the phone closed Nudge in the background. |
 | **Guided setup** | Onboarding explains each permission. The main screen flags anything that's missing. |
 | **Survives reboots** | Monitoring restarts after a reboot or an app update. |
 
@@ -74,7 +79,7 @@ flowchart LR
 
 ## Engineering highlights
 
-- **All the logic is testable.** `SessionTracker` has no Android imports. 21 JUnit tests drive it with a fake clock through real scenarios: thresholds, repeats, grace periods, screen off, snooze ending mid-session, live settings changes and ignored apps.
+- **All the logic is testable.** `SessionTracker` has no Android imports. JUnit tests drive it with a fake clock and a fake date through real scenarios: thresholds, repeats, grace periods, screen off, snooze ending mid-session, daily totals across sessions and midnight, live settings changes and ignored apps.
 - **Correct foreground detection.** Tracking "the last resumed package" breaks when an app moves between its own screens: the old screen's *stopped* event arrives after the new one's *resumed* event. Nudge tracks individual activities instead, and reads events in overlapping windows that are safe to process twice.
 - **Compose outside an Activity.** The overlay runs Compose inside a service, with its own lifecycle and saved-state owners. The window jumps to its expanded size in one step, instead of re-laying out on every animation frame.
 - **Plays by modern Android rules.** A `specialUse` foreground service (and the right fallback on Android 12–13), no `QUERY_ALL_PACKAGES`, immutable PendingIntents, a background activity launch fallback, and settings changes applied live through `Flow`.
@@ -87,8 +92,8 @@ flowchart LR
 
 ```
 app/src/main/java/se/christian/nudge/
-├── session/    SessionTracker, duration formatting (pure Kotlin)
-├── service/    UsageMonitorService, ForegroundAppDetector, BootReceiver
+├── session/    SessionTracker, daily usage totals, duration formatting (pure Kotlin)
+├── service/    UsageMonitorService, ForegroundAppDetector, DailyUsageReader, BootReceiver
 ├── reminder/   ReminderOverlay, ReminderPill, ReminderNotifier, actions
 ├── settings/   Settings model, SettingsRepository (DataStore)
 ├── apps/       Launchable apps, labels and icons (cached)
@@ -136,7 +141,11 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 - **Apps that hide overlays** (for example some banking apps) won't show the pill.
 - **Aggressive battery management** on some phones can stop the service. Allowing unrestricted battery use helps; some brands also need the app locked in recents or allowed to autostart.
 - **Snoozes live in memory** and are cleared if the service restarts.
+- **Daily totals are approximate** at the edges: time is split at midnight to the nearest poll, and the seeded total relies on Android's usage events, which some phones trim or delay.
+- **Daily reminders after a restart:** reminder points already passed in the seeded total count as shown. If you turn on Nudge (or restart the phone) after passing a daily limit set to "Only once", there's no reminder that day.
 - **5-second polling** means reminders and app switches can be detected up to 5 s late.
+- **"Pill" in the history means the pill was added to the screen.** An app that hides overlays still counts as shown, since Android doesn't tell Nudge.
+- **Monitoring gaps are approximate:** the stop time is the last heartbeat (up to a minute early), and if the phone closed Nudge while the screen was off, the gap includes screen-off time.
 
 ## Documentation
 
@@ -150,6 +159,12 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 <summary>Design and implementation decisions (click to expand)</summary>
 
 - **Reminders are opt-in per app** (changed after the initial build). The original spec enabled every app not listed in `disabledPackages`; settings now store `enabledPackages` instead, and an app gets reminders only if it's in that set. Newly installed apps start off. "Turn off for this app" removes the app from the set. There's no migration from `disabled_packages`, because no build with the old model was installed beyond testing.
+- **Daily totals are a second reminder type, not a mode switch.** Continuous use and daily total each have a global switch, so you can run either or both. Per app, each type can be turned off (`continuousOffPackages`, `dailyOffPackages`) and its time overridden (`thresholdOverrides`, `dailyLimitOverrides`). The per-app switches are stored as "off" sets so a newly enabled app follows the global types.
+- **Daily totals are counted live in `SessionTracker`** and seeded once from `UsageStatsManager` events when the service starts. Live counting needs no extra queries per poll; seeding covers use before the service started. Re-seeding on every screen-on was rejected because it would overwrite the live count with the system's (sometimes late) event log.
+- **When both reminder types are due on the same poll, only the daily one is shown** ("… today" carries more information), and both count as shown. Otherwise they repeat independently.
+- **Snoozing brings back only the types that had already reminded.** Without that, snoozing a continuous reminder would fire a daily reminder at the end of the snooze before the daily limit was reached.
+- **Daily repeat defaults to every 15 min** rather than "same as the limit": after a 1 h daily limit, waiting another hour for the next reminder felt too quiet. "Only once" is stored as 0 in DataStore, since an absent key means the default.
+- **Midnight is local time** from `LocalDate.now()`, injected into `SessionTracker` for tests. The session clock stays `elapsedRealtime`.
 - **compileSdk/targetSdk 37 (Platform 37.2).** The current stable AndroidX releases (core 1.19, lifecycle 2.11, Compose 1.12 via BOM 2026.09.00) refuse to build against anything lower.
 - **AGP 9 built-in Kotlin.** The `org.jetbrains.kotlin.android` plugin isn't applied; it's declared `apply false` in the root build only to pin the Kotlin Gradle plugin to the same version as the Compose and serialization compiler plugins. The one Gradle deprecation warning in the build (`Configuration.setVisible`) comes from AGP itself.
 - **Foreground detection tracks activities, not packages.** Taken per package, moving between two activities of the same app would end the session, because the old activity's `ACTIVITY_STOPPED` arrives after the new one's `ACTIVITY_RESUMED`. Resumed state is kept per package + class, and the foreground app is the package of the most recent still-resumed activity. Each poll re-reads a 2 s overlap, which is safe because processing is idempotent; after more than 10 min without polling, it rescans the last 10 min from scratch.
@@ -168,7 +183,16 @@ Some phones (for example OnePlus and OPPO) block these adb commands unless **Dis
 - **A third notification channel, "Status"** (default importance), is used for "usage access was turned off" and the settings-launch fallback. Neither belongs on the silent "Monitoring" channel or the heads-up "Reminders" channel.
 - **On API 31–33** the service is started without a type, since `specialUse` only exists from API 34.
 - **No backup:** `allowBackup="false"` and data extraction rules that exclude everything, so settings never leave the phone.
-- **Per-app threshold overrides** are stored as a JSON string (kotlinx.serialization) in DataStore, because Preferences DataStore has no map type.
+- **Per-app threshold and daily limit overrides** (and custom messages) are stored as JSON strings (kotlinx.serialization) in DataStore, because Preferences DataStore has no map type.
+- **Reminder history is a JSON file, not Room or DataStore.** It's a short list rewritten as a whole, read by one screen; a database would be overkill and Room is ruled out. Writes run in order on a single background thread, so a pill ending can't overtake the entry it updates.
+- **History keeps today only** (cleared at midnight, at most 500 entries). The question it answers is "did today's reminders show?"; older days added clutter without helping.
+- **Monitoring gaps come from a heartbeat.** A killed process gets no `onDestroy`, so the service writes `{running, lastAliveMs}` to a separate small file about once a minute while polling (not on every 5 s poll) and on screen off. If the next start finds `running` still true, it logs a stop at the last heartbeat. `getHistoricalProcessExitReasons` names the cause when Android recorded one. Stops after turning reminders off don't get a gap banner, since that's on purpose.
+- **Reminders get stronger per app and kind, not globally.** The repeat count lives next to the session (continuous use) and the daily total, so it resets exactly when they do: a new session or a new day starts subtle again. A reminder after a snooze counts as the next one; snoozing is a choice to be reminded again, not a reset. After a restart, seeded daily totals continue the count, so a restart doesn't make reminders gentle again.
+- **Vibration respects silent mode.** Big pills vibrate with notification usage attributes (API 33+), so Do Not Disturb applies, and never while the ringer is silent. On API 31–32, where `VibrationAttributes` can't be passed, the ringer check alone decides, rather than calling the deprecated `AudioAttributes` overload.
+- **A persistent pill closes when you leave its app.** It has no timer, so it would otherwise stay over whatever app you open next. Each poll compares the foreground app with the pill's; leaving logs "Left app" in the history. The screen turning off closes it too. Leaving Nudge closes a test pill the same way.
+- **The persistent pill's subtitle says "Swipe up to close, or tap for options"** rather than the design's "Swipe up or tap to close": a tap still opens the card, because Snooze is the most useful thing to do with a reminder that keeps coming back. The card gets a "Close" button instead.
+- **Big pills get a fixed-width window**, inset 12 dp from each screen edge, rather than a full-width one: a full-width window would swallow touches in the margins beside the pill.
+- **Custom messages are templates with `{time}` and `{app}`** rather than free text, so a message still says how long you've been on the app at each repeat. The editor starts from the built-in text with its placeholders visible; saving the built-in text unchanged stores nothing, so the app keeps following the built-in wording. Messages are per app only; there's no global message, to keep the main screen simple.
 - **UI strings are in Kotlin, not `strings.xml`.** The app is English-only and personal; only the app name is a resource.
 - **Main screen title is "Nudge"** rather than "Screen time reminders", to match the launcher label.
 - **Visual design** follows Android 16 Settings and Digital Wellbeing: Material 3, dynamic color, a filled main switch, and a `surfaceContainer` pill with a 3 dp shadow. Screenshots in this README were taken on an Android 16 emulator.

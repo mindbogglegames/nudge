@@ -40,7 +40,13 @@ class ReminderNotifier(private val context: Context) {
             .setShowWhen(false)
             .build()
 
-    fun showReminder(content: PillContent) {
+    /** Reminders can be posted: notifications are allowed and the "Reminders" channel isn't blocked. */
+    fun canShowReminders(): Boolean =
+        manager.areNotificationsEnabled() &&
+            manager.getNotificationChannel(CHANNEL_REMINDERS)?.importance != NotificationManager.IMPORTANCE_NONE
+
+    /** [historyId] lets the actions record how the reminder ended. */
+    fun showReminder(content: PillContent, historyId: Long) {
         val notification = Notification.Builder(context, CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_stat_nudge)
             .setContentTitle(content.text)
@@ -48,8 +54,10 @@ class ReminderNotifier(private val context: Context) {
             .setContentIntent(openAppIntent(content.packageName))
             .setAutoCancel(true)
             .setTimeoutAfter(REMINDER_TIMEOUT_MS)
-            .addAction(actionButton("Snooze", ReminderActionReceiver.ACTION_SNOOZE, content.packageName))
-            .addAction(actionButton("Turn off for this app", ReminderActionReceiver.ACTION_TURN_OFF, content.packageName))
+            .addAction(actionButton("Snooze", ReminderActionReceiver.ACTION_SNOOZE, content.packageName, historyId))
+            .addAction(
+                actionButton("Turn off for this app", ReminderActionReceiver.ACTION_TURN_OFF, content.packageName, historyId),
+            )
             .apply { content.icon?.let { setLargeIcon(it) } }
             .build()
         manager.notify(ID_REMINDER, notification)
@@ -90,10 +98,11 @@ class ReminderNotifier(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    private fun actionButton(title: String, action: String, packageName: String): Notification.Action {
+    private fun actionButton(title: String, action: String, packageName: String, historyId: Long): Notification.Action {
         val intent = Intent(context, ReminderActionReceiver::class.java)
             .setAction(action)
             .putExtra(ReminderActionReceiver.EXTRA_PACKAGE, packageName)
+            .putExtra(ReminderActionReceiver.EXTRA_HISTORY_ID, historyId)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             action.hashCode(),
