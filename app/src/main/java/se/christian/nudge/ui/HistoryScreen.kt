@@ -6,9 +6,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -124,7 +126,13 @@ fun HistoryScreen(
                 )
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
+                // Equal heights when a label wraps (large font sizes).
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .height(IntrinsicSize.Min),
+                ) {
                     StatTile(counts.pill, "Shown as pill", Modifier.weight(1f))
                     StatTile(counts.notification, "As notification", Modifier.weight(1f))
                     if (counts.notShown > 0) {
@@ -230,7 +238,7 @@ private fun StatTile(
     content: Color = MaterialTheme.colorScheme.onSurface,
     labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    Surface(shape = RoundedCornerShape(16.dp), color = container, contentColor = content, modifier = modifier) {
+    Surface(shape = RoundedCornerShape(16.dp), color = container, contentColor = content, modifier = modifier.fillMaxHeight()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(count.toString(), style = MaterialTheme.typography.headlineSmall)
             Text(label, style = MaterialTheme.typography.bodySmall, color = labelColor)
