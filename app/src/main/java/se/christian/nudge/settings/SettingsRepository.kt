@@ -72,6 +72,8 @@ class SettingsRepository(context: Context) {
     suspend fun setAppDailyEnabled(packageName: String, enabled: Boolean) =
         store.edit { it.toggle(DAILY_OFF_PACKAGES, packageName, off = !enabled) }
 
+    suspend fun setReminderStyle(style: ReminderStyle) = store.edit { it[REMINDER_STYLE] = style.name }
+
     /** Sets the app's continuous use reminder message; null or blank goes back to the built-in one. */
     suspend fun setContinuousMessage(packageName: String, message: String?) =
         store.edit { it.setMessage(CONTINUOUS_MESSAGES, packageName, message) }
@@ -119,6 +121,8 @@ class SettingsRepository(context: Context) {
         dailyOffPackages = this[DAILY_OFF_PACKAGES].orEmpty(),
         continuousMessages = messages(CONTINUOUS_MESSAGES),
         dailyMessages = messages(DAILY_MESSAGES),
+        reminderStyle = this[REMINDER_STYLE]?.let { name -> ReminderStyle.entries.firstOrNull { it.name == name } }
+            ?: ReminderStyle.GETS_STRONGER,
     )
 
     private fun Preferences.overrides(key: Preferences.Key<String>): Map<String, Int> =
@@ -154,6 +158,7 @@ class SettingsRepository(context: Context) {
         private val DAILY_OFF_PACKAGES = stringSetPreferencesKey("daily_off_packages")
         private val CONTINUOUS_MESSAGES = stringPreferencesKey("continuous_messages")
         private val DAILY_MESSAGES = stringPreferencesKey("daily_messages")
+        private val REMINDER_STYLE = stringPreferencesKey("reminder_style")
 
         /** Stored for "only once a day"; an absent key means the default. */
         private const val DAILY_REPEAT_ONCE = 0

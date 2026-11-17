@@ -396,7 +396,7 @@ fun appSubtitle(packageName: String, settings: Settings): String {
 
 private fun advancedSummary(settings: Settings): String {
     val repeat = settings.repeatIntervalMinutes?.let { formatMinutes(it.toLong()) } ?: "same as reminder time"
-    return "Repeat: $repeat · Grace: ${formatSeconds(settings.gracePeriodSeconds)} · " +
+    return "${reminderStyleTitle(settings.reminderStyle)} · Repeat: $repeat · Grace: ${formatSeconds(settings.gracePeriodSeconds)} · " +
         "Snooze: ${formatMinutes(settings.snoozeMinutes.toLong())}"
 }
 

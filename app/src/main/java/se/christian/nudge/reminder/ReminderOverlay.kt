@@ -17,6 +17,7 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import se.christian.nudge.history.ReminderEnd
+import se.christian.nudge.session.PillLevel
 import se.christian.nudge.ui.theme.NudgeTheme
 
 /**
@@ -39,7 +40,7 @@ class ReminderOverlay<T>(
     private var current: ShownPill? = null
 
     /** A pill on screen and who to tell how it ended (once). */
-    private class ShownPill(val view: ComposeView, private val onEnd: (ReminderEnd) -> Unit) {
+    private class ShownPill(val view: ComposeView, val content: PillContent, private val onEnd: (ReminderEnd) -> Unit) {
         private var ended = false
 
         fun end(reason: ReminderEnd) {
@@ -58,9 +59,10 @@ class ReminderOverlay<T>(
         if (!Settings.canDrawOverlays(windowContext)) return false
         dismissNow(ReminderEnd.REPLACED)
 
-        val params = layoutParams()
+        val big = content.level != PillLevel.SUBTLE
+        val params = layoutParams(big)
         val view = ComposeView(windowContext)
-        val shown = ShownPill(view, onEnd)
+        val shown = ShownPill(view, content, onEnd)
         view.setViewTreeLifecycleOwner(owner)
         view.setViewTreeSavedStateRegistryOwner(owner)
         view.setContent {
@@ -70,7 +72,8 @@ class ReminderOverlay<T>(
                     onSnooze = { actions.snooze(content.packageName) },
                     onTurnOff = { actions.turnOff(content.packageName) },
                     onOpenSettings = { actions.openSettings(content.packageName, content.appLabel) },
-                    onExpandedChange = { expanded -> resize(view, params, expanded) },
+                    // A big pill's window is already wide enough for the expanded card.
+                    onExpandedChange = { expanded -> if (!big) resize(view, params, expanded) },
                     // Remove after the current frame, not from inside the composition being disposed.
                     onDismissed = { reason ->
                         shown.end(reason)
@@ -87,6 +90,17 @@ class ReminderOverlay<T>(
         } catch (e: RuntimeException) {
             Log.w(TAG, "Couldn't add the reminder overlay", e)
             false
+        }
+    }
+
+    /**
+     * Closes a persistent pill once its app is no longer in the foreground ([foregroundPackage]), so it can't be
+     * left behind over another app. Other pills close on their own timer.
+     */
+    fun closeIfAppLeft(foregroundPackage: String?) {
+        val shown = current ?: return
+        if (shown.content.level == PillLevel.PERSISTENT && shown.content.packageName != foregroundPackage) {
+            dismissNow(ReminderEnd.LEFT_APP)
         }
     }
 
@@ -127,8 +141,12 @@ class ReminderOverlay<T>(
         }
     }
 
-    private fun layoutParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
+    /**
+     * A subtle pill's window wraps it. A big pill's window spans the screen width minus [BigPillWindowInset] on each
+     * side, so the pill can fill it while touches beside it still reach the app underneath.
+     */
+    private fun layoutParams(big: Boolean) = WindowManager.LayoutParams(
+        if (big) bigWindowWidth() else WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -139,6 +157,12 @@ class ReminderOverlay<T>(
         fitInsetsTypes = 0
         y = windowManager.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars()).top
         title = "Nudge reminder"
+    }
+
+    private fun bigWindowWidth(): Int {
+        val screenWidth = windowManager.currentWindowMetrics.bounds.width()
+        val inset = (BigPillWindowInset.value * windowContext.resources.displayMetrics.density).toInt()
+        return screenWidth - 2 * inset
     }
 
     private companion object {

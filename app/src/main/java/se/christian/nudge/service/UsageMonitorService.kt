@@ -33,6 +33,7 @@ import se.christian.nudge.reminder.ReminderOverlay
 import se.christian.nudge.session.Reminder
 import se.christian.nudge.session.SessionTracker
 import se.christian.nudge.session.messageFor
+import se.christian.nudge.session.pillLevel
 import se.christian.nudge.session.reminderText
 
 /**
@@ -176,7 +177,9 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
             return
         }
         app.reminderLog.heartbeat()
-        val reminder = tracker.onForeground(detector.currentForegroundPackage()) ?: return
+        val foreground = detector.currentForegroundPackage()
+        overlay.closeIfAppLeft(foreground)
+        val reminder = tracker.onForeground(foreground) ?: return
         showReminder(reminder)
     }
 
@@ -195,9 +198,14 @@ class UsageMonitorService : LifecycleService(), SavedStateRegistryOwner {
                     tracker.settings.messageFor(reminder.packageName, reminder.kind),
                 ),
                 snoozeMinutes = tracker.settings.snoozeMinutes,
+                level = pillLevel(tracker.settings.reminderStyle, reminder.repeatIndex),
             )
             val outcome = app.reminderPresenter.present(overlay, content, reminder.kind, test = false)
-            Log.i(TAG, "${reminder.kind} reminder for ${reminder.packageName} at ${reminder.minutes} min: ${outcome.delivery}")
+            Log.i(
+                TAG,
+                "${reminder.kind} reminder #${reminder.repeatIndex} for ${reminder.packageName} at ${reminder.minutes} min: " +
+                    "${outcome.delivery} ${content.level}",
+            )
         }
     }
 

@@ -17,6 +17,7 @@ import se.christian.nudge.Permissions
 import se.christian.nudge.apps.AppInfo
 import se.christian.nudge.history.HistoryEntry
 import se.christian.nudge.service.DailyUsageReader
+import se.christian.nudge.settings.ReminderStyle
 import se.christian.nudge.settings.Settings
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,6 +72,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setRepeatInterval(minutes: Int?) = launch { repository.setRepeatIntervalMinutes(minutes) }
     fun setGracePeriod(seconds: Int) = launch { repository.setGracePeriodSeconds(seconds) }
     fun setSnooze(minutes: Int) = launch { repository.setSnoozeMinutes(minutes) }
+    fun setReminderStyle(style: ReminderStyle) = launch { repository.setReminderStyle(style) }
     fun setAppEnabled(packageName: String, enabled: Boolean) = launch { repository.setAppEnabled(packageName, enabled) }
     fun setThresholdOverride(packageName: String, minutes: Int?) =
         launch { repository.setThresholdOverride(packageName, minutes) }

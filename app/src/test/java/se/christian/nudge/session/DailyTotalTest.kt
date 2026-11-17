@@ -24,7 +24,11 @@ class DailyTotalTest {
     )
     private val tracker = SessionTracker(clock, dailyOnly, ignoredPackages = setOf(LAUNCHER), today = { date })
 
-    private fun use(pkg: String?, minutes: Double): List<Reminder> {
+    /** Like [poll], ignoring [Reminder.repeatIndex], which has its own tests. */
+    private fun use(pkg: String?, minutes: Double): List<Reminder> = poll(pkg, minutes).map { it.copy(repeatIndex = 1) }
+
+    /** Polls every 5 s like the service, with [pkg] in the foreground for [minutes]. */
+    private fun poll(pkg: String?, minutes: Double): List<Reminder> {
         val reminders = mutableListOf<Reminder>()
         val end = clock.now + (minutes * 60_000).toLong()
         tracker.onForeground(pkg)?.let(reminders::add)
@@ -36,6 +40,29 @@ class DailyTotalTest {
     }
 
     private fun daily(vararg minutes: Long) = minutes.map { Reminder(YOUTUBE, it, ReminderKind.Daily) }
+
+    @Test
+    fun `daily repeat index counts across sessions and resets at midnight`() {
+        assertEquals(listOf(1, 2), poll(YOUTUBE, 76.0).map { it.repeatIndex })
+        use(CHROME, 30.0)
+        assertEquals(listOf(3), poll(YOUTUBE, 15.0).map { it.repeatIndex })
+        date = date.plusDays(1)
+        assertEquals(listOf(1), poll(YOUTUBE, 61.0).map { it.repeatIndex })
+    }
+
+    @Test
+    fun `seeded total continues the daily repeat index`() {
+        // 80 min seeded with a 60 min limit, repeats every 15: points 60 and 75 count as shown.
+        tracker.seedDailyTotals(mapOf(YOUTUBE to 80 * 60_000L))
+        assertEquals(listOf(3), poll(YOUTUBE, 11.0).map { it.repeatIndex }) // 90 min
+    }
+
+    @Test
+    fun `daily reminder after a snooze counts as the next repeat`() {
+        poll(YOUTUBE, 60.0) // #1
+        tracker.snooze(YOUTUBE)
+        assertEquals(listOf(2), poll(YOUTUBE, 10.5).map { it.repeatIndex })
+    }
 
     @Test
     fun `daily limit adds up separate sessions`() {

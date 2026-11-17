@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import se.christian.nudge.NudgeApp
+import se.christian.nudge.session.PillLevel
 import se.christian.nudge.ui.AppVisibility
 import se.christian.nudge.ui.MainActivity
 
@@ -19,6 +20,7 @@ data class PillContent(
     val icon: Bitmap?,
     val text: String,
     val snoozeMinutes: Int,
+    val level: PillLevel = PillLevel.SUBTLE,
 )
 
 /** In-process events from reminder UI (pill, notification actions) to the running service. */

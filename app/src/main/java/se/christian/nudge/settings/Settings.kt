@@ -1,5 +1,8 @@
 package se.christian.nudge.settings
 
+/** How strongly the pill shows: see [se.christian.nudge.session.pillLevel]. */
+enum class ReminderStyle { SUBTLE, PROMINENT, GETS_STRONGER }
+
 /** User settings. Pure Kotlin so [se.christian.nudge.session.SessionTracker] can use it on the JVM. */
 data class Settings(
     val remindersEnabled: Boolean = false,
@@ -27,6 +30,7 @@ data class Settings(
     val continuousMessages: Map<String, String> = emptyMap(),
     /** Per-app daily total reminder messages, like [continuousMessages]. */
     val dailyMessages: Map<String, String> = emptyMap(),
+    val reminderStyle: ReminderStyle = ReminderStyle.GETS_STRONGER,
 ) {
     fun isAppEnabled(packageName: String): Boolean = packageName in enabledPackages
 

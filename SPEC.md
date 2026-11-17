@@ -52,6 +52,18 @@ Required unit tests: apps are off by default; threshold reached gives exactly on
 - While expanded, dismiss 8 s after the last interaction.
 - Only one pill at a time; a new reminder replaces the current one.
 
+## Stronger reminders
+- Setting `reminderStyle` (DataStore `reminder_style`): `SUBTLE`, `PROMINENT` or `GETS_STRONGER` (default), as a "Reminder style" radio group at the top of the Advanced sheet: "Subtle" ("Small pill for 6 s, as now"), "Prominent" ("Big colored pill with a vibration every time"), "Gets stronger" ("Starts subtle and gets bigger with each repeat"). The Advanced row's summary starts with the style.
+- Each `Reminder` carries a 1-based `repeatIndex` per app and kind (`SessionTracker`, pure). Continuous use: counts within a session and resets when the session ends (away longer than the grace period). Daily total: counts within the day and resets at midnight; after seeding, reminder points already passed count as shown, so the index continues. A reminder that comes back when a snooze ends counts as the next repeat.
+- `pillLevel(style, repeatIndex)` (pure): Subtle is always `SUBTLE`, Prominent always `PROMINENT`; Gets stronger gives `SUBTLE` for #1, `PROMINENT` for #2, `PERSISTENT` from #3.
+- `SUBTLE`: the pill above, unchanged.
+- `PROMINENT`: fills the width inside the 16 dp screen margins, at least 80 dp tall, 28 dp corners, ~6 dp elevation, `primaryContainer` with `onPrimaryContainer` text, 40 dp app icon, the reminder text at 20 sp medium (one line, ellipsized) and "Tap to snooze or turn off" below it. Enters with a small spring bounce. Stays 10 s, with a 4 dp `primary` bar along the bottom that shrinks to show the time left and restarts on interaction. One short vibration.
+- `PERSISTENT`: the same look without the bar and without auto-dismiss, subtitle "Swipe up to close, or tap for options"; two short vibrations. The expanded card doesn't time out either and gets a "Close" button next to "Settings". The overlay closes it when its app leaves the foreground (checked every poll) or the screen turns off, logged in the history as "Left app" / "Screen off".
+- The big pills' window spans the screen width minus 12 dp on each side (the pill keeps 4 dp for its shadow), so touches beside the pill still reach the app underneath. Window flags as before.
+- Vibration: `VIBRATE` permission (normal, no prompt); `VibratorManager.defaultVibrator`, notification usage attributes on API 33+ so Do Not Disturb applies; never when the ringer is silent. Only for the pill; the notification fallback is unchanged.
+- "Show test reminder": taps in a row step through repeats 1, 2, 3 (then 1 again) for the current style, starting over after a minute without taps (`TestReminderCycle`, pure). Still marked "Test" in the history. Leaving the app closes a test pill.
+- Required unit tests: repeat index (counts, continues within grace, resets after grace, daily resets at midnight, seeding continues it, snooze counts as a repeat); level mapping for all three styles; the test-reminder cycle.
+
 ## Fallback notification
 If overlay permission isn't granted or `addView` throws: post a heads-up notification on a high-importance channel "Reminders" with the same text, the app icon as large icon, and actions "Snooze" and "Turn off for this app" (handled by a BroadcastReceiver). Auto-cancel after 1 min (`setTimeoutAfter`).
 
@@ -80,7 +92,7 @@ Re-check all permission states in `onResume`. On the main screen, show a card fo
 - "Remind me" section with two switch rows (Android Settings primary-switch style: text opens a sheet, the switch toggles the type):
   - "Continuous use" ("After 15 min of continuous use" / "Off"): sheet headed "Remind me after 15 min of continuous use" with the default threshold.
   - "Daily total" ("After 1 h of use each day" / "Off"): sheet headed "Remind me after 1 h of use each day" with the default daily limit (chips 15/30/45 min, 1 h, 1 h 30 min, 2 h, 3 h, "Custom") and "After that, remind me every" ("Only once", 5/10/15/30 min, 1 h).
-- "Advanced" row: repeat interval, grace period, snooze length (continuous use).
+- "Advanced" row: reminder style, repeat interval, grace period, snooze length (continuous use).
 - When the main switch is off, dim and disable the "Remind me" rows and "Advanced" as well as the app list.
 - "Reminder history" row below "Advanced", with a chevron: "3 reminders today", plus " · 1 not shown" in the error color when any weren't shown, or "No reminders today". Not dimmed when the main switch is off.
 - "Show test reminder" button: shows the pill immediately for a sample app.

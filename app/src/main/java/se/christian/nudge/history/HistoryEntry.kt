@@ -42,7 +42,18 @@ enum class Delivery { PILL, NOTIFICATION, NOT_SHOWN }
 /** Why a reminder wasn't shown as the pill. */
 enum class DeliveryReason { OVERLAY_PERMISSION_OFF, PILL_FAILED, PILL_BLOCKED_NOTIFICATIONS_OFF }
 
-enum class ReminderEnd { TIMED_OUT, DISMISSED, SNOOZED, TURNED_OFF, OPENED_SETTINGS, REPLACED, SCREEN_OFF }
+enum class ReminderEnd {
+    TIMED_OUT,
+    DISMISSED,
+    SNOOZED,
+    TURNED_OFF,
+    OPENED_SETTINGS,
+    REPLACED,
+    SCREEN_OFF,
+
+    /** A persistent pill closed because its app left the foreground. */
+    LEFT_APP,
+}
 
 enum class StopReason {
     /** "Use reminders" was turned off. */

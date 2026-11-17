@@ -20,6 +20,11 @@ data class Reminder(
     val packageName: String,
     val minutes: Long,
     val kind: ReminderKind = ReminderKind.Continuous,
+    /**
+     * 1 for the first reminder of this kind for the app, 2 for the next, and so on. Counts per session for
+     * continuous use and per day for daily totals; a reminder after a snooze counts as the next one.
+     */
+    val repeatIndex: Int = 1,
 )
 
 /**
@@ -47,6 +52,9 @@ class SessionTracker(
         /** Set by a snooze; the first evaluation after the snooze ends reminds immediately. */
         var remindWhenSnoozeEnds = false
 
+        /** Reminders shown in this session. */
+        var reminderCount = 0
+
         fun elapsed(now: Long): Long = accumulatedMs + (resumedAt?.let { now - it } ?: 0L)
     }
 
@@ -63,6 +71,9 @@ class SessionTracker(
         var seededMs: Long? = null
 
         var remindWhenSnoozeEnds = false
+
+        /** Reminders shown (or counted as shown after seeding) today. */
+        var reminderCount = 0
     }
 
     private val sessions = HashMap<String, Session>()
@@ -198,7 +209,8 @@ class SessionTracker(
 
         session.remindWhenSnoozeEnds = false
         session.lastReminderAtMs = elapsed
-        return Reminder(pkg, elapsed / MINUTE_MS, ReminderKind.Continuous)
+        session.reminderCount++
+        return Reminder(pkg, elapsed / MINUTE_MS, ReminderKind.Continuous, session.reminderCount)
     }
 
     private fun evaluateDaily(pkg: String): Reminder? {
@@ -210,7 +222,10 @@ class SessionTracker(
         usage.seededMs?.let { seeded ->
             usage.seededMs = null
             if (usage.lastReminderAtMs == null && seeded >= limitMs) {
-                usage.lastReminderAtMs = if (repeatMs == null) limitMs else limitMs + (seeded - limitMs) / repeatMs * repeatMs
+                val repeatsPassed = if (repeatMs == null) 0L else (seeded - limitMs) / repeatMs
+                usage.lastReminderAtMs = limitMs + repeatsPassed * (repeatMs ?: 0L)
+                // The points passed count as shown, so the next reminder continues the count.
+                usage.reminderCount = (1 + repeatsPassed).toInt()
             }
         }
 
@@ -226,7 +241,8 @@ class SessionTracker(
 
         usage.remindWhenSnoozeEnds = false
         usage.lastReminderAtMs = total
-        return Reminder(pkg, total / MINUTE_MS, ReminderKind.Daily)
+        usage.reminderCount++
+        return Reminder(pkg, total / MINUTE_MS, ReminderKind.Daily, usage.reminderCount)
     }
 
     private companion object {

@@ -397,6 +397,7 @@ private fun endText(end: ReminderEnd) = when (end) {
     ReminderEnd.OPENED_SETTINGS -> "Opened settings"
     ReminderEnd.REPLACED -> "Replaced"
     ReminderEnd.SCREEN_OFF -> "Screen off"
+    ReminderEnd.LEFT_APP -> "Left app"
 }
 
 /** The part after "Monitoring stopped · ", or null for a plain stop. */

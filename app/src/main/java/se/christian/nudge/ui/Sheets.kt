@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -19,11 +21,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import se.christian.nudge.apps.AppInfo
 import se.christian.nudge.session.ReminderKind
 import se.christian.nudge.session.formatMinutes
 import se.christian.nudge.session.messageFor
+import se.christian.nudge.settings.ReminderStyle
 import se.christian.nudge.settings.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +93,16 @@ fun DailyTotalSheet(settings: Settings, viewModel: MainViewModel, onDismiss: () 
 fun AdvancedSheet(settings: Settings, viewModel: MainViewModel, onDismiss: () -> Unit) {
     NudgeSheet(onDismiss) {
         SheetHeader(icon = null, title = "Advanced")
+
+        SheetSectionTitle("Reminder style")
+        ReminderStyle.entries.forEach { style ->
+            RadioOption(
+                title = reminderStyleTitle(style),
+                summary = reminderStyleSummary(style),
+                selected = settings.reminderStyle == style,
+                onSelect = { viewModel.setReminderStyle(style) },
+            )
+        }
 
         SheetSectionTitle("Repeat reminder every")
         ChoiceChips(
@@ -223,6 +237,36 @@ fun AppSettingsSheet(
             )
         }
     }
+}
+
+/** A radio button row: title and summary, the whole row selects. */
+@Composable
+private fun RadioOption(title: String, summary: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton)
+            .padding(vertical = 8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(end = 16.dp, top = 2.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+fun reminderStyleTitle(style: ReminderStyle): String = when (style) {
+    ReminderStyle.SUBTLE -> "Subtle"
+    ReminderStyle.PROMINENT -> "Prominent"
+    ReminderStyle.GETS_STRONGER -> "Gets stronger"
+}
+
+private fun reminderStyleSummary(style: ReminderStyle): String = when (style) {
+    ReminderStyle.SUBTLE -> "Small pill for 6 s, as now"
+    ReminderStyle.PROMINENT -> "Big colored pill with a vibration every time"
+    ReminderStyle.GETS_STRONGER -> "Starts subtle and gets bigger with each repeat"
 }
 
 /** Section title with a switch, for turning one reminder type on or off for a single app. */
